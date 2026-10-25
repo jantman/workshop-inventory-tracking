@@ -182,3 +182,180 @@ Run these before writing the spec. Several of the gaps above depend on the answe
 - Enterprise Home Screen: https://techdocs.zebra.com/ehs/latest/guide/about/
 - Chrome HTTPS-by-default: https://blog.google/security/https-by-defau/
 - Android mDNS resolver: https://source.android.com/docs/core/architecture/modular-system/dns-resolver
+
+## Phase 0 design decisions (2026-10-25)
+
+Written during `/speckit-plan`. Code references are to `main` at `e5c2bd9`.
+
+### D1. Where handheld routes live
+
+- **Decision**: a new `handheld` blueprint, `app/handheld/`, with `url_prefix='/h'`. It is registered in `app/__init__.py` beside `main`, `admin` and `product` (`app/__init__.py:152-158`).
+- **Rationale**: the `/h/` prefix comes from one place, and the desktop route modules stay as they are apart from extracted helpers. The constitution allows routes in a blueprint package.
+- **Alternatives**:
+  - Spread handheld routes across `main` (item, shorten, move items) and `product` (product, move products, receive, orders). Rejected: the prefix would be repeated in nine decorators, and the handheld would have no single place to read.
+  - A separate app. Rejected as scale machinery.
+
+### D2. Mapping scan outcomes to handheld screens
+
+- **Decision**: `POST /api/scan` accepts an optional `"handheld": true` (contracts/scan-api.md).
+  - Resolution is untouched. `service.scan(scan)` runs exactly as today.
+  - Only the URL chosen in `api_scan` (`app/product/routes.py:2652`) changes: `item` goes to `handheld.item`, `product` to `handheld.product`, and `receive` to `_receive_url(resolution, handheld=True)`.
+  - `create` and `search` keep their desktop URLs (FR-003).
+  - `scan-capture.js` sends the flag when its input has `data-scan-capture="handheld"`. The desktop's bare `data-scan-capture` sends the same body as today.
+- **Rationale**: `_receive_url` (`app/product/routes.py:2723`) holds the three-way receive rule:
+  - one outstanding line goes to its receipt, with `quantity` from the label's `Q` field;
+  - several lines go to the choice page for vendors with `LANDING_CHOICE_PAGE` (McMaster, Amazon), and otherwise to the order screen with `highlight`;
+  - none outstanding flashes "already received" and goes to the order screen.
+
+  Keeping that rule on the server and swapping only the endpoint names keeps one resolution rule. `scan-capture.js:193` already navigates to whatever `url` comes back.
+- **Alternatives**:
+  - Map client-side from `payload.outcome` and `payload.purchases`. Rejected: the receive branching would be re-implemented in JS, giving two copies of 029 FR-038 to FR-040.
+  - A separate `/api/h/scan`. Rejected: it is a second endpoint for one flag.
+  - Rewrite URLs client-side (`/inventory/edit/X` to `/h/item/X`). Rejected: string surgery on URLs, and it cannot handle `receive`.
+
+### D3. The handheld base template
+
+- **Decision**: `handheld/base.html` extends `base.html`. `base.html` gains three blocks:
+  - `{% block navbar %}` around the existing `<nav>`
+  - `{% block footer %}` around the `<footer>`
+  - an empty `{% block styles %}` after `main.css`
+
+  The handheld base overrides `navbar` with a sticky compact header (Home, scan input, keyboard button), `footer` with nothing, `styles` with `handheld.css`, and `main_container_class` with `handheld-main container-fluid px-2`. It defines `screen` and `action_bar` blocks. The action bar is `position: fixed; bottom: 0`, and the main area gets matching bottom padding.
+- **Rationale**: the handheld still needs everything else `base.html` carries:
+  - the `csrf-token` meta and `csrf.js`
+  - Bootstrap CSS and JS
+  - icons
+  - PhotoSwipe, browser-image-compression and pdf.js
+  - `main.js` (`showToast`, which `photo-manager.js:9` uses instead of `alert`)
+  - `photo-manager.js`, `scan-capture.js`
+  - flash messages
+
+  Extending the base means none of that is copied and none of it can drift. Default block contents render the same HTML for desktop pages.
+- **Alternatives**: a standalone handheld base. Rejected: it would copy about 40 lines of CDN tags and script includes that would drift. `main.js` is null-safe without the navbar (`main.js:36`), so it can load as-is.
+
+### D4. Which input is the "scan entry" on each screen
+
+- **Decision**:
+  - Landing, item, product, receive, receive-choice, order list and order screens: the scan entry is the header input `#handheld-scan-input` with `data-scan-capture="handheld"`, resolved per D2.
+  - Move: the scan entry is move-manager's `#barcode-input`, placed in the header slot. No header scan input is rendered.
+  - Shorten: the scan entry is `#source-ja-id`, placed the same way.
+- **Rationale**: on Move, a scan is a subject, a location, a sub-location or `>>DONE<<`. If it were resolved by `/api/scan`, a location scan would land on product search. On Shorten, a JA ID scan means "shorten this", not "open its item screen". Two scan inputs on one screen would compete for focus.
+- **Spec impact**: US1 scenario 6 and FR-002/FR-003 say "any handheld screen" handles a scan "the same way as on the landing page". That holds for the seven screens above. On Move and Shorten, scans are the task's own input, and Home is one tap away (FR-005). This is reported back to the user as an interpretation.
+
+### D5. Reusing the move controller
+
+- **Decision**: a new `handheld/move.html` carries every element ID that `MoveManager` binds (`move-manager.js:89-186`; list in contracts/controller-markup.md). It loads `move-manager.js` plus `inventory-move.js` or `product-move.js`, chosen by `?kind=items|products`. Hand-off uses the same helpers as desktop: `resolve_handoff(ja_id)` and `resolve_product_handoff(code)`. The layout:
+  - `#barcode-input` in the sticky header
+  - `#form-alerts` directly under it, height-capped so warnings scroll inside it instead of pushing the input away (FR-019)
+  - the queue (`#queue-items` stays a `<tbody>`, because `renderQueueItems()` at `move-manager.js:843` appends `<tr>`s with seven `<td>`s) reflowed into stacked rows by CSS scoped to `.handheld-main`
+  - `#validate-btn` and `#execute-moves-btn` in the fixed action bar
+- **Rationale**: no change to move logic. `>>DONE<<` handling (`move-manager.js:307`, `:722`) and `#scanner-status` come along unchanged. `waits.scan_on_move_page` keys on `#barcode-input`, `#scanner-status` and `#queue-count`, so it works on the handheld page as-is.
+- **Alternatives**: restyle the desktop `move/_scan_move.html` macro with CSS. Rejected (plan.md, Complexity Tracking).
+- **Note**: `>>DONE<<` does not execute anything. It finalizes the half-entered move and enables Validate (`move-manager.js:722-770`). Execute stays a tap on the action bar, as on desktop.
+
+### D6. Reusing the shorten controller and handler
+
+- **Decision**:
+  - `handheld/shorten.html` carries the IDs that `InventoryShortenManager` binds (`inventory-shorten.js:25-64`, plus `#shorten-form`), in a compact layout:
+    - `#source-ja-id` in the header
+    - current length and `#new-length` first
+    - the confirm checkbox and `#execute-shortening-btn` in the action bar
+    - notes, summary and history below
+  - The POST body of `inventory_shorten` (`app/main/routes.py:1045-1119`) is extracted into `handle_shorten_post(form_data, return_endpoint)`. The desktop calls it with `'main.inventory_shorten'`, and `/h/shorten` POST with `'handheld.shorten'`. The form keeps `method="POST"` with no `action`, so it posts to its own page.
+- **Rationale**: the desktop form posts to itself and every branch redirects to `main.inventory_shorten`. Without the extraction, the handheld would land on the desktop page after a shorten. With it, validation, audit logging and `_execute_shortening_operation` stay one copy (constitution VI).
+- **Alternatives**: a hidden `return_to=handheld` field on the desktop route. It works, but it adds a branch to five redirects. The extraction is the same size and reads more plainly.
+
+### D7. Reusing the receive handler
+
+- **Decision**:
+  - Extract `_receive_purchase_from_form(service, purchase_id, form)` from `purchase_receive` (`app/product/routes.py:1106-1118`). It maps the form fields onto `service.receive_purchase(...)`, including `counted == 'on'`, and both routes call it.
+  - The handheld form posts the same fields the desktop form posts when nothing is amended: `description` = product description, `unit_price` and `notes` = stored values, `received_date` blank, plus the visible `quantity` and `counted`. The service sees the same call an unamended desktop receive makes (SC-005).
+  - Success redirects to `handheld.product` with the same `Received.` flash. A `ValidationError` re-renders `handheld/receive.html`.
+  - Extract `_receive_choice(scan)` from `purchase_receive_choice` (`:2266-2296`: `find_mcmaster_receivable`, then the vendor-scoped product fallback) for `/h/receive/choose`.
+- **Rationale**: the desktop redirects to the desktop product page and re-renders the desktop template on refusal. The handheld needs its own landing, with no new rules.
+- **Already received**: the handheld receive screen says so and offers no Receive button. A repeat receive is a service no-op anyway, so this is presentation only.
+
+### D8. Reusing the product Stock card and label modal
+
+- **Decision**:
+  - Move `detail.html` lines 355–498 (the Stock card) verbatim into `product/_stock_card.html`, and lines 592–633 (the label modal) into `product/_label_modal.html`. `detail.html` includes them at the same positions. `{% include %}` shares the context, so `product`, `received_total` and the `relative_age` filter keep working.
+  - The handheld product screen includes both. `received_total` comes from a new `_received_total(purchases)` helper that `product_detail` also uses.
+  - `product-stock.js` reloads the page after every PATCH (`product-stock.js:151`), so the handheld re-renders from the server exactly as the desktop does.
+- **FR-016**: the modal measured 538 px. The two `.form-text` help lines get `d-none d-sm-block`, which hides them below 576 px and leaves them visible at desktop widths, so the desktop look is unchanged. The e2e test measures that `#product-label-print-confirm` is in the viewport at 360×512.
+- **Desktop identity check**: render `/products/<id>` before and after the extraction and diff the HTML with whitespace normalized (quickstart §3). The existing product e2e tests and screenshots must also pass unchanged.
+- **Compaction**: the Stock card's own header and helper text are hidden only under `.handheld-main`, so the −/+, Set, counting and Low/Out/Clear controls sit as high as possible. US2 acceptance 1 requires name, location and the quantity controls above the fold, and that is the measured gate. Low/Out/Clear above the fold is the aim, measured in e2e but not a gate.
+
+### D9. Attachments and photos
+
+- **Item photos**: `PhotoManager.init('#photo-manager-container', {itemId, readOnly: false})` (`photo-manager.js:43`) mounts on any page as-is. `edit.html:735` already does exactly this. Its file input has no `capture` attribute, so Android offers its chooser, as decided.
+- **Product attachments**: the handheld product screen renders the markup `product-attachments.js` binds:
+  - `#attachments-card[data-product-id]`
+  - `#attachment-alerts`
+  - `#product-attachment-input` and `#upload-product-attachment-btn`
+  - `.attachment-select` and the selection toolbar
+
+  It renders no per-tile `.delete-attachment-btn`. On the desktop that button deletes **without any confirmation** (`product-attachments.js:96-112`), and FR-017 requires a confirmation. On the handheld, deletion is select, then Delete Selected, which confirms (`:178`). Each tile is a full-width label around its checkbox (FR-008).
+
+### D10. In-page confirmation (FR-026)
+
+- **Decision**: `main.js` defines a default `window.confirmAction = (message) => Promise.resolve(window.confirm(message))`. `handheld.js` replaces it with a Bootstrap-modal confirm that resolves true or false. Three call sites change from `confirm(...)` to `await window.confirmAction(...)`:
+  - `move-manager.js:1125`, in `executeMoves`, which is already async
+  - `photo-manager.js:640` and `:657`, which are already async
+  - `product-attachments.js:178`, whose click handler becomes async
+- **Rationale**: these are the only browser dialogs in the controllers the handheld reuses. A grep of `alert(`, `confirm(` and `prompt(` over `app/static/js` finds none in `inventory-shorten.js`, `product-stock.js`, `label-printing-modal.js` or `product-label-modal.js`. `photo-manager.js:23` alerts only when `WorkshopInventory.utils.showToast` is missing, and `main.js` provides it. On desktop, `window.confirm` is still called synchronously from the same handler, so desktop behavior and the dialog-accepting desktop e2e tests are unchanged.
+- **Alternatives**: copy the controllers, which duplicates logic, or replace desktop confirms everywhere, which violates FR-025.
+
+### D11. Soft keyboard (FR-029) and focus (FR-002)
+
+- **Decision**: `handheld.js` does all of it.
+  - Every handheld scan entry is rendered with `inputmode="none"` and `autocomplete="off"`, and is focused on `DOMContentLoaded` with `{preventScroll: true}`.
+  - **Keyboard button** (`[data-keyboard-for="<input id>"]`):
+    1. Set `inputmode="text"`, then `blur()` and `focus()` so Chrome raises the IME.
+    2. On the Move screen, also check `#manual-entry-mode` and dispatch `change`. Otherwise `move-manager.js:319` auto-processes the field 100 ms after each typed character and would submit a half-typed code.
+    3. On the next Enter keydown in that input (listened for without `preventDefault`, so the controller's own handler still runs), restore `inputmode="none"`, uncheck manual-entry mode, and blur and refocus so the keyboard drops.
+  - **Refocus after actions**:
+    - on `hidden.bs.modal`, which covers the label modals and the in-page confirm
+    - after a `click` whose target is not a form field (`input`, `select`, `textarea`, `label`), on a microtask, so tapping +, Execute or Print returns focus to the scan entry
+    - pages that reload after an action (product stock, attachments, form POSTs) get focus from the load handler
+- **Rationale**: research.md records that tapping the header Scan box raises the keyboard (observed 2026-10-25), and that scan-capture's no-Enter fallback cannot fire on Android (`scan-capture.js:144`, key `"Unidentified"`). The Enter suffix is therefore required and is documented in FR-028. `scan-capture.js` is reused unchanged apart from the flag. That keeps the Ctrl-key to GS/RS/EOT reconstruction for DigiKey labels (`scan-capture.js:36`), and its Enter path already falls back to `input.value` when no keydown characters were buffered (`:115-121`), which is the Android IME path.
+- **Unverified on the device, and a gate before release**:
+  1. That DataWedge keystrokes reach an `inputmode="none"` field in Chrome. If they do not, the fallback is DataWedge's own "DataWedge keyboard" option (research.md, "How scanning reaches the web page") with `inputmode` left default.
+  2. That a DigiKey 2D label still works on Android. If DataWedge sends the control characters as Ctrl key events while the printable characters arrive through the IME, `scan-capture.js` buffers only the control characters. Its `input.value` fallback is then skipped because the buffer is not empty, and the scan is lost. This is unchanged desktop code and the same risk exists for the header box today. It is listed for the device check, not fixed speculatively.
+
+### D12. Primary-action reachability (FR-007) and overflow (FR-006)
+
+- **Decision**:
+  - The scan entry sits in a `position: sticky; top: 0` header.
+  - Each screen's primary action sits in a `position: fixed; bottom: 0` action bar:
+    - Move: Validate and Execute
+    - Shorten: Confirm and Execute
+    - Receive: Receive
+    - Order: Receive Selected
+    - Item: Label, Photos, Shorten, Move
+    - Product: Label, Attach, Move, Order
+  - On the product screen, Set is inside the Stock card, which is the first block under the header, so it is above the fold at load.
+  - Long text wraps (`overflow-wrap: anywhere` on the summary and card text under `.handheld-main`).
+- **Test helper** (`tests/e2e/handheld.py`):
+  - `assert_handheld_layout(page, scan_selector, primary_selector)` runs `expect(locator).to_be_visible()` and then `expect(locator).to_be_in_viewport()` for both. That polls, following CLAUDE.md.
+  - It then scrolls to the bottom with `page.mouse.wheel` (or `evaluate('window.scrollTo(0, document.body.scrollHeight)')`) and asserts `to_be_in_viewport()` again.
+  - Finally it evaluates `scrollWidth - clientWidth <= 1`, after the content region has been established with `expect()`.
+
+### D13. Orders on the handheld (FR-023, FR-023a, FR-023b)
+
+- **Order list**: group `service.find_outstanding_purchases()` (`app/catalog_service.py:4284`) by `(vendor, supplier_order_reference)`, skipping purchases with no order reference. They have no order screen and are reachable from their product's screen instead. The service's order is kept: oldest order first. See data-model.md.
+- **Order screen**:
+  - `service.find_order_lines_for(vendor, order)` (`:4456`), shown as cards. Each outstanding line is a full-width `<label>` wrapping a `name="purchase_id"` checkbox. Received lines show their received date and have no checkbox (FR-023).
+  - `highlight` marks matching cards (`vendor_item_id`) but selects nothing (FR-022).
+  - The POST goes to `/h/orders/<vendor>/<order>/receive`, which calls `service.receive_order_lines(...)` through the existing `_flash_bulk_receipt` (`app/product/routes.py:1907`) and redirects back to the handheld order screen.
+- **Product screen**: list the product's outstanding purchases, from `get_purchase_history` filtered on `is_outstanding`. Each gets a Receive link to `/h/receive/<id>`, which satisfies US6 scenario 5. Each distinct order gets an Order link (FR-023b). Several orders appear as several buttons, which is the choice FR-023b asks for.
+- **One handheld order URL for every vendor**: `/h/orders/<vendor>/<order>`. The DigiKey-specific desktop address (`_order_url`) exists only for history compatibility, which does not apply to new URLs.
+
+### D14. Survey seeding file
+
+The throwaway survey test named in the planning brief (`…/scratchpad/handheld-screens/test_zz_handheld_survey.py.txt`) was **not present** when this plan was written. The e2e seeding is therefore planned from existing helpers:
+- `live_server.add_test_data` for items
+- `add_test_products` and `add_product_attachments` (`tests/e2e/test_server.py:193`, `:217`)
+- `CatalogService(live_server.storage).record_purchase(...)`, as in `tests/e2e/test_outstanding_products.py:36`
+- the McMaster and DigiKey receive seeding in `test_mcmaster_receive.py` and `test_digikey_receive.py`
+
+FR-006's "data lengths the survey seeded" becomes an explicit long-data fixture: a 255-character description, a long location and sub-location, a long vendor name, and order numbers of realistic length.

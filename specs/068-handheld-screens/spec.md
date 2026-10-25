@@ -47,7 +47,7 @@ Any scan the handheld screens don't cover opens the matching desktop page.
 3. **Given** the landing page, **When** the operator scans a distributor label that matches exactly one outstanding purchase line, **Then** the handheld receive screen for that line opens.
 4. **Given** the landing page, **When** the operator scans something the handheld screens do not cover (an unknown product code that would start a new product, or free text that would search), **Then** the existing desktop page that the desktop scan box would open opens.
 5. **Given** the landing page, **When** it is viewed at 360×512, **Then** the scan entry and the task buttons are visible without scrolling or opening a menu.
-6. **Given** any handheld screen, **When** the operator scans, **Then** the scan is handled the same way as on the landing page, without returning to it first.
+6. **Given** any handheld screen other than Move and Shorten, **When** the operator scans, **Then** the scan is handled the same way as on the landing page, without returning to it first. On Move and Shorten the scan entry is the task's own input. A scan there is a subject, a location or a JA ID to shorten, as on the desktop pages (`research.md`, D4).
 
 ---
 
@@ -192,7 +192,7 @@ The operator opens a captured order on the handheld. They get there by scanning 
 
 - **FR-001**: The system MUST provide a handheld landing page at a stable address that can be bookmarked and set as the device browser's home page.
 - **FR-002**: Every handheld screen MUST have a scan entry that holds keyboard focus when the screen loads and after each action completes, so that a scan works without a tap.
-- **FR-003**: A scan on a handheld screen MUST be resolved by the same rules as the desktop header scan box. The result MUST open:
+- **FR-003**: A scan on a handheld screen (other than Move and Shorten, whose scan entry is the task input; see US1 scenario 6) MUST be resolved by the same rules as the desktop header scan box. The result MUST open:
   - **JA ID:** the handheld item screen.
   - **Known product:** the handheld product screen.
   - **Receive result:** the handheld receive flow (a single line, a choice among candidates, the handheld order screen, or "nothing outstanding").
