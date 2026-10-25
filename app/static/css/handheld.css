@@ -300,3 +300,14 @@
     padding: 0.5rem;
     font-size: 0.875em;
 }
+
+/* Product screen "On order" card (US6, US7): the action bar's Orders button
+   scrolls here when there is more than one order; the margin clears the
+   sticky header. */
+.handheld-main #handheld-product-outstanding {
+    scroll-margin-top: 4rem;
+}
+
+.handheld-main .handheld-outstanding-purchase > div {
+    min-width: 0;
+}

@@ -472,14 +472,14 @@ with the same effects as the desktop.
 
 ### Desktop refactor
 
-- [ ] T045 [US6] **(desktop)** In `app/product/routes.py`:
+- [X] T045 [US6] **(desktop)** In `app/product/routes.py`:
   - extract `_receive_purchase_from_form(service, purchase_id, form)` from `purchase_receive`
     (about lines 1106–1118), with the same field mapping including `counted == 'on'`
   - extract `_receive_choice(scan)` from `purchase_receive_choice` (about lines 2266–2296)
   - both desktop routes call the helpers
   - the existing `tests/unit/test_product_routes.py`, `tests/unit/test_mcmaster_routes.py`,
     `tests/unit/test_mcmaster_receive.py` and `tests/unit/test_order_receive.py` pass unedited
-- [ ] T046 [US6] In `app/product/routes.py`, give `_receive_url` a `handheld: bool = False`
+- [X] T046 [US6] In `app/product/routes.py`, give `_receive_url` a `handheld: bool = False`
   parameter and pass the flag from `api_scan`. With the flag, the one-outstanding-line target
   becomes `handheld.receive` (keeping `quantity`) and the `LANDING_CHOICE_PAGE` target becomes
   `handheld.receive_choose`. The branching is unchanged. The order-screen branch stays on
@@ -487,19 +487,19 @@ with the same effects as the desktop.
 
 ### Tests
 
-- [ ] T047 [P] [US6] In `tests/unit/test_scan_routes.py`, add receive cases.
+- [X] T047 [P] [US6] In `tests/unit/test_scan_routes.py`, add receive cases.
   - One outstanding line with the flag returns `/h/receive/<pid>?quantity=Q`.
   - A McMaster or Amazon multi-candidate scan with the flag returns
     `/h/receive/choose?scan=…`.
   - Without the flag, both return today's URLs.
-- [ ] T048 [P] [US6] In `tests/unit/test_handheld_routes.py`:
+- [X] T048 [P] [US6] In `tests/unit/test_handheld_routes.py`:
   - `GET /h/receive/<id>?quantity=3` prefills 3, and an unknown id returns 404
   - `POST /h/receive/<id>` receives the purchase and redirects to `/h/product/<pid>` with
     `Received.`
   - a `ValidationError` re-renders the handheld template
   - an already-received purchase shows no Receive button
   - `GET /h/receive/choose?scan=…` lists the candidates
-- [ ] T049 [P] [US6] Create `tests/e2e/test_handheld_receive.py`, covering US6 scenarios 1–5
+- [X] T049 [P] [US6] Create `tests/e2e/test_handheld_receive.py`, covering US6 scenarios 1–5
   and US1 scenario 3. Seed as `tests/e2e/test_mcmaster_receive.py` and
   `tests/e2e/test_digikey_receive.py` do, and with `record_purchase`.
   - **Scenario 1 (and US1 scenario 3).** A single-line label scanned on `/h/` goes to
@@ -513,21 +513,21 @@ with the same effects as the desktop.
 
 ### Implementation
 
-- [ ] T050 [US6] Add `handheld.receive` (GET and POST) and `handheld.receive_choose` to
+- [X] T050 [US6] Add `handheld.receive` (GET and POST) and `handheld.receive_choose` to
   `app/handheld/routes.py`, per handheld-routes.md and data-model.md.
   - POST calls `_receive_purchase_from_form`. Success redirects to `handheld.product` with the
     same flash. A `ValidationError` re-renders.
   - `receive_choose` calls `_receive_choice(scan)`.
-- [ ] T051 [US6] Create `app/templates/handheld/receive.html` (D7):
+- [X] T051 [US6] Create `app/templates/handheld/receive.html` (D7):
   - **Visible.** Product description, ordered quantity, pack note, `quantity`, and `counted`
     only when `product.quantity is not None`.
   - **Hidden.** `description`, `unit_price`, `notes`, a blank `received_date`, and
     `csrf_token`.
   - **Action bar.** Receive.
   - **Already received.** The message and no Receive button.
-- [ ] T052 [P] [US6] Create `app/templates/handheld/receive_choose.html`. Candidates are
+- [X] T052 [P] [US6] Create `app/templates/handheld/receive_choose.html`. Candidates are
   full-width links to `/h/receive/<id>`, and nothing is preselected (FR-022).
-- [ ] T053 [US6] In `handheld.product` (`app/handheld/routes.py`) and
+- [X] T053 [US6] In `handheld.product` (`app/handheld/routes.py`) and
   `app/templates/handheld/product.html`, add `outstanding` (data-model.md) and a Receive link
   for each outstanding purchase, to `/h/receive/<id>` (US6 scenario 5).
 
@@ -543,7 +543,7 @@ receive them. Exactly those two are received.
 
 ### Tests
 
-- [ ] T054 [P] [US7] In `tests/unit/test_handheld_routes.py`:
+- [X] T054 [P] [US7] In `tests/unit/test_handheld_routes.py`:
   - `group_outstanding_orders(...)` groups by `(vendor, reference)`, skips blank references,
     counts correctly and keeps oldest-first order
   - `/h/orders` lists only orders with outstanding lines
@@ -551,11 +551,11 @@ receive them. Exactly those two are received.
     returns 200 with "not captured"
   - `POST …/receive` receives exactly the posted `purchase_id`s and redirects back
   - `/h/product/<id>` shows one Order link per distinct outstanding order
-- [ ] T055 [P] [US7] In `tests/unit/test_scan_routes.py`, add the non-choice-vendor (DigiKey)
+- [X] T055 [P] [US7] In `tests/unit/test_scan_routes.py`, add the non-choice-vendor (DigiKey)
   multi- or zero-outstanding case. With the flag it returns
   `/h/orders/<vendor>/<order>?highlight=<P>`, and the "already received" flash is unchanged.
   Without the flag it returns today's URL.
-- [ ] T056 [P] [US7] Create `tests/e2e/test_handheld_orders.py`, covering US7 scenarios 1–5.
+- [X] T056 [P] [US7] Create `tests/e2e/test_handheld_orders.py`, covering US7 scenarios 1–5.
   - **Scenarios 1–2.** An order with 3 outstanding lines, using a long vendor name.
     `assert_handheld_layout(page, '#handheld-scan-input', <Receive Selected>)`. Tap 2 cards
     (anywhere on the card, FR-008) and Receive Selected. Exactly those 2 are received,
@@ -567,31 +567,40 @@ receive them. Exactly those two are received.
     orders.
   - **Scan entry.** A DigiKey multi-line scan on `/h/` lands on the handheld order screen
     with the line highlighted and nothing selected.
+  - *The long vendor is `LONG_VENDOR` with its " / " replaced: a vendor name containing `/`
+    cannot be a `<vendor>` URL segment (desktop `/products/orders/<vendor>/…` 404s the same
+    way), so the order screen is unreachable for it on both. Pre-existing; not fixed here.*
 
 ### Implementation
 
-- [ ] T057 [US7] In `app/product/routes.py` `_receive_url`, switch the `_order_url(...)` target
+- [X] T057 [US7] In `app/product/routes.py` `_receive_url`, switch the `_order_url(...)` target
   to `url_for('handheld.order', vendor=…, order_number=…, highlight=…)` when `handheld` is set
   (scan-api.md).
-- [ ] T058 [US7] In `app/handheld/routes.py`, add:
+- [X] T058 [US7] In `app/handheld/routes.py`, add:
   - the `OrderSummary` dataclass and `group_outstanding_orders(purchases)` (data-model.md)
   - `handheld.orders`
   - `handheld.order`, reading `find_order_lines_for` and `highlight`
   - `handheld.order_receive` (POST), which calls `_flash_bulk_receipt(lambda:
     service.receive_order_lines(vendor, order_number, form.getlist('purchase_id'),
     received_date=form.get('received_date')))` and redirects to `handheld.order`
-- [ ] T059 [P] [US7] Create `app/templates/handheld/orders.html`, with one full-width link
+- [X] T059 [P] [US7] Create `app/templates/handheld/orders.html`, with one full-width link
   card per order showing vendor, order number and outstanding count. An empty list says so.
-- [ ] T060 [P] [US7] Create `app/templates/handheld/order.html` (D13):
+- [X] T060 [P] [US7] Create `app/templates/handheld/order.html` (D13):
   - each outstanding line is a full-width `<label>` card wrapping a
     `name="purchase_id"` checkbox
   - received lines show their received date and have no checkbox
   - `highlight` marks cards but selects none
   - an empty `lines` list gives "No order <n> from <vendor> was captured" and a Home link
   - Receive Selected in `action_bar`, with `csrf_token`
-- [ ] T061 [US7] In `handheld.product` and `app/templates/handheld/product.html`, add
+  - *No received-date field: the POST omits it, which the service takes as today. An
+    outstanding line with no product gets no checkbox, as on the desktop.*
+- [X] T061 [US7] In `handheld.product` and `app/templates/handheld/product.html`, add
   `outstanding_orders` (data-model.md) and one Order button per distinct order, linking to
   `/h/orders/<vendor>/<order>` (FR-023b).
+  - *Done as: an "On order" card under the Stock card holds one Order link per distinct order
+    (and each outstanding purchase's Receive, T053). The action bar has a single Order button:
+    with one order it opens that order; with several it scrolls to the card, which is the
+    choice. N buttons in the fixed bar would not fit 360 px or tell the orders apart.*
 
 ---
 

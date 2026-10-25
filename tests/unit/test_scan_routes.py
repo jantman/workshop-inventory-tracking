@@ -143,3 +143,85 @@ class TestHandheldFlag:
         response = client.post('/api/scan', json={'scan': 'ja000123', 'handheld': flag})
 
         assert response.get_json()['url'] == '/inventory/edit/JA000123'
+
+
+class TestHandheldReceiveUrls:
+    """068 US6/US7 (scan-api.md): a receive scan with the flag lands on the
+    handheld receive, choice or order screen; without it, today's URLs. The
+    branching is the same either way."""
+
+    DIGIKEY_ORDER = '100882558'
+    DIGIKEY_PART = '1866-3032-ND'
+    MCMASTER_PART = '97387A173'
+
+    def _digikey_line(self, service, product, order=DIGIKEY_ORDER, **fields):
+        return service.record_purchase(
+            product.id, vendor='DigiKey', vendor_item_id=self.DIGIKEY_PART,
+            supplier_order_reference=order, quantity=10, **fields,
+        )
+
+    def _mcmaster_line(self, service, product, order):
+        return service.record_purchase(
+            product.id, vendor='McMaster-Carr', vendor_item_id=self.MCMASTER_PART,
+            supplier_order_reference=order, quantity=100,
+        )
+
+    def _urls(self, client, scan):
+        desktop = client.post('/api/scan', json={'scan': scan}).get_json()
+        handheld = client.post('/api/scan', json={'scan': scan, 'handheld': True}).get_json()
+        assert desktop['outcome'] == handheld['outcome'] == 'receive'
+        return desktop['url'], handheld['url']
+
+    def test_one_outstanding_line_goes_to_the_handheld_receive_screen(self, client, service):
+        from tests.unit.test_digikey_receive import bag_label
+
+        product = service.create_product(description='AC/DC converter')
+        line = self._digikey_line(service, product)
+
+        desktop, handheld = self._urls(client, bag_label(quantity='3'))
+
+        assert desktop == f'/purchases/{line.id}/receive?quantity=3'
+        assert handheld == f'/h/receive/{line.id}?quantity=3'
+
+    def test_several_mcmaster_lines_go_to_the_handheld_choice_page(self, client, service):
+        product = service.create_product(description='Rivets')
+        self._mcmaster_line(service, product, 'FIRST-ORDER')
+        self._mcmaster_line(service, product, 'LATER-ORDER')
+
+        desktop, handheld = self._urls(client, self.MCMASTER_PART)
+
+        assert desktop == f'/products/purchases/receive-choice?scan={self.MCMASTER_PART}'
+        assert handheld == f'/h/receive/choose?scan={self.MCMASTER_PART}'
+
+    def test_several_digikey_lines_go_to_the_handheld_order_screen(self, client, service):
+        from tests.unit.test_digikey_receive import bag_label
+
+        product = service.create_product(description='AC/DC converter')
+        self._digikey_line(service, product)
+        self._digikey_line(service, product)
+
+        desktop, handheld = self._urls(client, bag_label())
+
+        assert desktop == (f'/products/digikey/orders/{self.DIGIKEY_ORDER}'
+                           f'?highlight={self.DIGIKEY_PART}')
+        assert handheld == (f'/h/orders/DigiKey/{self.DIGIKEY_ORDER}'
+                            f'?highlight={self.DIGIKEY_PART}')
+
+    def test_nothing_outstanding_flashes_and_goes_to_the_handheld_order_screen(
+            self, client, service):
+        from tests.unit.test_digikey_receive import bag_label
+
+        product = service.create_product(description='AC/DC converter')
+        line = self._digikey_line(service, product)
+        service.receive_purchase(line.id)
+
+        response = client.post('/api/scan', json={'scan': bag_label(), 'handheld': True})
+
+        assert response.get_json()['url'] == (
+            f'/h/orders/DigiKey/{self.DIGIKEY_ORDER}?highlight={self.DIGIKEY_PART}'
+        )
+        with client.session_transaction() as session:
+            flashes = session.get('_flashes', [])
+        assert ('info', f'That line of DigiKey order {self.DIGIKEY_ORDER} is already received.') \
+            in flashes
+        assert service.get_purchase(line.id).received_date is not None

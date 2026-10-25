@@ -28,6 +28,32 @@ def scan(page: Page, code: str) -> None:
     page.keyboard.press("Enter")
 
 
+# How a wedge delivers a distributor label's separators: as Ctrl-key events,
+# which scan-capture.js maps back (test_wedge_scan.py asserts the mapping).
+_CONTROL_KEYS = {"\x1d": "Control+]", "\x1e": "Control+6", "\x04": "Control+d"}
+
+
+def scan_label(page: Page, label: str) -> None:
+    """Deliver a distributor (ECIA) label as a wedge does, separators included.
+
+    Plain runs are typed; each GS/RS/EOT is pressed as its Ctrl key. As
+    :func:`scan`, it waits for the scan entry's focus first and ends with Enter.
+    """
+    expect(page.locator(SCAN_ENTRY)).to_be_focused()
+    run = ""
+    for char in label:
+        if char in _CONTROL_KEYS:
+            if run:
+                page.keyboard.type(run)
+                run = ""
+            page.keyboard.press(_CONTROL_KEYS[char])
+        else:
+            run += char
+    if run:
+        page.keyboard.type(run)
+    page.keyboard.press("Enter")
+
+
 def assert_handheld_layout(page: Page, scan_selector: str, primary_selector: str) -> None:
     """The scan entry and the primary action stay on screen, with no sideways scroll.
 

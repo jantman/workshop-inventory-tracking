@@ -1,0 +1,90 @@
+{% extends "handheld/base.html" %}
+{#
+  One captured order (US7, research.md D13). Each outstanding line is a
+  full-width card wrapping its checkbox; received lines show their date and
+  cannot be selected. ``highlight`` marks the lines a scan named and selects
+  none (FR-022). Receive Selected posts to the desktop's bulk receipt.
+#}
+
+{% block screen %}
+{% set outstanding_count = lines | selectattr('is_outstanding') | list | length %}
+<div class="handheld-summary mb-2" id="handheld-order-summary">
+    <h1 class="h6 mb-1" id="handheld-order-number">Order {{ order_number }}</h1>
+    <div class="small" id="handheld-order-vendor">{{ vendor }}</div>
+    {% if lines %}
+    <div class="small" id="handheld-order-progress">{{ outstanding_count }} of {{ lines | length }} outstanding</div>
+    {% endif %}
+</div>
+
+{% if not lines %}
+<p id="handheld-order-not-captured">No order {{ order_number }} from {{ vendor }} was captured.</p>
+<a class="btn btn-outline-primary w-100" id="handheld-order-home-link" href="{{ url_for('handheld.landing') }}">
+    <i class="bi bi-house"></i> Home
+</a>
+{% else %}
+<form id="handheld-order-form" method="POST"
+      action="{{ url_for('handheld.order_receive', vendor=vendor, order_number=order_number) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    {% for line in lines %}
+    {% set highlighted = highlight and line.vendor_item_id == highlight %}
+    {% set selectable = line.is_outstanding and line.product %}
+    <{{ 'label' if selectable else 'div' }}
+        class="{{ 'handheld-select-card' if selectable else 'card handheld-card mb-2 p-2' }} order-line{% if highlighted %} handheld-highlight{% endif %}"
+        data-purchase="{{ line.id }}"
+        data-part="{{ line.vendor_item_id or '' }}"
+        data-outstanding="{{ 'true' if line.is_outstanding else 'false' }}">
+        {% if selectable %}
+        <input type="checkbox" class="form-check-input order-line-checkbox" name="purchase_id"
+               value="{{ line.id }}" aria-label="Select {{ line.product.description }}">
+        {% endif %}
+        <span class="d-block">
+            <span class="d-block">{{ line.product.description if line.product else (line.listing_title or 'product deleted') }}</span>
+            <span class="d-block small">
+                {{ line.quantity if line.quantity is not none else '—' }}
+                {%- if line.pack_size %} (packs of {{ line.pack_size }}){% endif %}
+                {%- if line.vendor_item_id %} &middot; <code>{{ line.vendor_item_id }}</code>{% endif %}
+                {%- if line.order_line_number %} &middot; line {{ line.order_line_number }}{% endif %}
+            </span>
+            {% if line.is_outstanding %}
+            <span class="badge text-bg-warning">outstanding</span>
+            {% else %}
+            <span class="badge text-bg-success">received</span>
+            <span class="small text-body-secondary">{{ line.received_date.strftime('%-d %b %Y') }}</span>
+            {% endif %}
+        </span>
+    </{{ 'label' if selectable else 'div' }}>
+    {% endfor %}
+</form>
+{% endif %}
+{% endblock %}
+
+{% block action_bar %}
+{% if lines | selectattr('is_outstanding') | list %}
+<button type="submit" class="btn btn-primary" id="handheld-order-receive-btn"
+        form="handheld-order-form" disabled>
+    <i class="bi bi-box-arrow-in-down"></i> Receive Selected
+    <span class="badge text-bg-light" id="handheld-order-selected-count">0</span>
+</button>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const button = document.getElementById('handheld-order-receive-btn');
+    if (!button) {
+        return;
+    }
+    const count = document.getElementById('handheld-order-selected-count');
+    const boxes = document.querySelectorAll('.order-line-checkbox');
+    const update = () => {
+        const selected = Array.from(boxes).filter((box) => box.checked).length;
+        count.textContent = selected;
+        button.disabled = selected === 0;
+    };
+    boxes.forEach((box) => box.addEventListener('change', update));
+    update();
+});
+</script>
+{% endblock %}

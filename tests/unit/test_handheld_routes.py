@@ -303,3 +303,270 @@ class TestShorten:
         client.post('/h/shorten', data={'source_ja_id': 'JA000091', 'new_length': '600'})
 
         assert InventoryService(test_storage).get_item('JA000091').length == Decimal('1000')
+
+
+def _flashes(client) -> list:
+    with client.session_transaction() as session:
+        return session.get('_flashes', [])
+
+
+class TestReceive:
+    """US6 (research.md D7): the desktop receipt's effects, a handheld screen."""
+
+    def test_get_prefills_the_label_quantity(self, client, service):
+        product = service.create_product(description='Rivets', quantity=4)
+        purchase = service.record_purchase(product.id, vendor='McMaster-Carr', quantity=10,
+                                           pack_size=5)
+
+        response = client.get(f'/h/receive/{purchase.id}?quantity=3')
+
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert re.search(r'<input[^>]*id="quantity"[^>]*value="3"', html)
+        assert 'Rivets' in html
+        assert 'Ordered 10, as packs of 5' in html
+        assert 'id="counted"' in html
+        assert 'id="handheld-receive-btn"' in html
+        for field in ('description', 'unit_price', 'notes', 'received_date', 'csrf_token'):
+            assert re.search(rf'<input type="hidden" name="{field}"', html), field
+
+    def test_without_a_count_there_is_no_counted_choice(self, client, service):
+        product = service.create_product(description='Untracked rivets')
+        purchase = service.record_purchase(product.id, vendor='McMaster-Carr', quantity=10)
+
+        html = client.get(f'/h/receive/{purchase.id}').get_data(as_text=True)
+
+        assert re.search(r'<input[^>]*id="quantity"[^>]*value="10"', html)
+        assert 'id="counted"' not in html
+
+    def test_an_unknown_purchase_is_handled_as_on_desktop(self, client):
+        desktop = client.get('/purchases/999999/receive')
+        handheld = client.get('/h/receive/999999')
+
+        assert handheld.status_code == desktop.status_code
+        assert handheld.headers.get('Location') == desktop.headers.get('Location')
+
+    def test_post_receives_and_returns_to_the_handheld_product(self, client, service):
+        product = service.create_product(description='Rivets', quantity=4)
+        purchase = service.record_purchase(product.id, vendor='McMaster-Carr', quantity=10)
+
+        response = client.post(f'/h/receive/{purchase.id}', data={
+            'quantity': '7', 'counted': 'on', 'description': 'Rivets',
+            'unit_price': '', 'notes': '', 'received_date': '',
+        })
+
+        assert response.status_code == 302
+        assert response.headers['Location'].endswith(f'/h/product/{product.id}')
+        assert ('success', 'Received.') in _flashes(client)
+        received = service.get_purchase(purchase.id)
+        assert received.received_date is not None
+        assert received.quantity == 7
+        assert service.get_product(product.id).quantity == 11
+
+    def test_a_refusal_re_renders_the_handheld_screen(self, client, service):
+        product = service.create_product(description='Rivets')
+        purchase = service.record_purchase(product.id, vendor='McMaster-Carr', quantity=10)
+
+        response = client.post(f'/h/receive/{purchase.id}', data={
+            'quantity': 'lots', 'description': 'Rivets',
+        })
+
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'id="handheld-receive-form"' in html
+        assert re.search(r'<input[^>]*id="quantity"[^>]*value="lots"', html)
+        assert service.get_purchase(purchase.id).received_date is None
+
+    def test_an_already_received_purchase_offers_no_receive(self, client, service):
+        product = service.create_product(description='Rivets')
+        purchase = service.record_purchase(product.id, vendor='McMaster-Carr', quantity=10)
+        service.receive_purchase(purchase.id)
+
+        html = client.get(f'/h/receive/{purchase.id}').get_data(as_text=True)
+
+        assert 'id="handheld-already-received"' in html
+        assert 'id="handheld-receive-btn"' not in html
+        assert 'id="handheld-receive-form"' not in html
+
+
+class TestReceiveChoose:
+    PART = '97387A173'
+
+    def test_lists_the_candidates_selecting_none(self, client, service):
+        product = service.create_product(description='Rivets')
+        first = service.record_purchase(product.id, vendor='McMaster-Carr',
+                                        vendor_item_id=self.PART,
+                                        supplier_order_reference='FIRST')
+        second = service.record_purchase(product.id, vendor='McMaster-Carr',
+                                         vendor_item_id=self.PART,
+                                         supplier_order_reference='SECOND')
+
+        html = client.get(f'/h/receive/choose?scan={self.PART}').get_data(as_text=True)
+
+        for purchase in (first, second):
+            assert f'href="/h/receive/{purchase.id}"' in html
+        assert 'Order FIRST' in html and 'Order SECOND' in html
+        assert not re.search(r'<input[^>]*\bchecked\b', html)
+
+    def test_nothing_outstanding_says_so(self, client, service):
+        product = service.create_product(description='Rivets')
+        purchase = service.record_purchase(product.id, vendor='McMaster-Carr',
+                                           vendor_item_id=self.PART)
+        service.receive_purchase(purchase.id)
+
+        html = client.get(f'/h/receive/choose?scan={self.PART}').get_data(as_text=True)
+
+        assert 'id="nothing-outstanding"' in html
+        assert 'receive-candidate' not in html
+        # No product carries the part number, so it offers the desktop search.
+        assert 'id="handheld-choice-search-link"' in html
+
+
+def _order_line(service, product, order='ORD-1', vendor='DigiKey', **fields):
+    return service.record_purchase(
+        product.id, vendor=vendor, supplier_order_reference=order, quantity=2, **fields,
+    )
+
+
+class TestGroupOutstandingOrders:
+    def test_groups_counts_and_skips_blank_references(self, service):
+        from app.handheld.routes import group_outstanding_orders
+
+        product = service.create_product(description='Widget')
+        _order_line(service, product, order='OLD', vendor='DigiKey')
+        _order_line(service, product, order='NEW', vendor='Amazon')
+        _order_line(service, product, order='OLD', vendor='DigiKey')
+        _order_line(service, product, order='  ', vendor='DigiKey')
+        _order_line(service, product, order=None, vendor='DigiKey')
+        # Same number, another vendor: another order.
+        _order_line(service, product, order='OLD', vendor='Mouser')
+
+        orders = group_outstanding_orders(service.find_outstanding_purchases())
+
+        # Undated orders, so the service's sort fixes no order among them;
+        # test_keeps_the_input_order covers the ordering.
+        assert sorted((o.vendor, o.order_number, o.outstanding) for o in orders) == [
+            ('Amazon', 'NEW', 1), ('DigiKey', 'OLD', 2), ('Mouser', 'OLD', 1),
+        ]
+
+    def test_keeps_the_input_order(self):
+        from types import SimpleNamespace
+
+        from app.handheld.routes import group_outstanding_orders
+
+        lines = [
+            SimpleNamespace(vendor='B', supplier_order_reference='2', order_date=None),
+            SimpleNamespace(vendor='A', supplier_order_reference='1', order_date=None),
+            SimpleNamespace(vendor='B', supplier_order_reference='2', order_date=None),
+            SimpleNamespace(vendor='A', supplier_order_reference='', order_date=None),
+        ]
+
+        orders = group_outstanding_orders(lines)
+
+        assert [(o.vendor, o.order_number, o.outstanding) for o in orders] == [
+            ('B', '2', 2), ('A', '1', 1),
+        ]
+
+
+class TestOrders:
+    def test_lists_only_orders_with_outstanding_lines(self, client, service):
+        product = service.create_product(description='Widget')
+        _order_line(service, product, order='OPEN-1')
+        _order_line(service, product, order='OPEN-1')
+        done = _order_line(service, product, order='DONE-1')
+        service.receive_purchase(done.id)
+
+        html = client.get('/h/orders').get_data(as_text=True)
+
+        assert 'href="/h/orders/DigiKey/OPEN-1"' in html
+        assert '2 outstanding' in html
+        assert 'DONE-1' not in html
+
+    def test_an_empty_list_says_so(self, client):
+        html = client.get('/h/orders').get_data(as_text=True)
+
+        assert 'id="handheld-no-orders"' in html
+
+
+class TestOrder:
+    def test_only_outstanding_lines_are_selectable(self, client, service):
+        product = service.create_product(description='Widget')
+        first = _order_line(service, product, vendor_item_id='P-1')
+        second = _order_line(service, product, vendor_item_id='P-2')
+        received = _order_line(service, product, vendor_item_id='P-3')
+        service.receive_purchase(received.id)
+
+        html = client.get('/h/orders/DigiKey/ORD-1?highlight=P-2').get_data(as_text=True)
+
+        boxes = re.findall(r'name="purchase_id"\s+value="(\d+)"', html)
+        assert sorted(boxes) == sorted([str(first.id), str(second.id)])
+        assert not re.search(r'<input[^>]*\bchecked\b', html)
+        assert re.search(r'handheld-highlight"\s+data-purchase="%d"' % second.id, html)
+        assert 'id="handheld-order-receive-btn"' in html
+        assert '2 of 3 outstanding' in html
+
+    def test_an_unknown_order_is_a_200_saying_not_captured(self, client):
+        response = client.get('/h/orders/DigiKey/NOPE-9')
+
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert 'No order NOPE-9 from DigiKey was captured' in html
+        assert 'id="handheld-order-home-link"' in html
+        assert 'id="handheld-order-receive-btn"' not in html
+
+    def test_post_receives_exactly_the_posted_lines(self, client, service):
+        product = service.create_product(description='Widget')
+        lines = [_order_line(service, product, vendor_item_id=f'P-{n}') for n in range(3)]
+
+        response = client.post('/h/orders/DigiKey/ORD-1/receive', data={
+            'purchase_id': [str(lines[0].id), str(lines[2].id)],
+        })
+
+        assert response.status_code == 302
+        assert response.headers['Location'].endswith('/h/orders/DigiKey/ORD-1')
+        assert ('success', 'Received 2 line(s).') in _flashes(client)
+        states = [service.get_purchase(line.id).received_date is not None for line in lines]
+        assert states == [True, False, True]
+
+
+class TestProductOutstanding:
+    def test_offers_receive_for_each_outstanding_purchase(self, client, service):
+        product = service.create_product(description='Widget')
+        open_line = _order_line(service, product)
+        done = _order_line(service, product)
+        service.receive_purchase(done.id)
+
+        html = client.get(f'/h/product/{product.id}').get_data(as_text=True)
+
+        assert f'href="/h/receive/{open_line.id}"' in html
+        assert f'href="/h/receive/{done.id}"' not in html
+
+    def test_one_order_link_per_distinct_order(self, client, service):
+        product = service.create_product(description='Widget')
+        _order_line(service, product, order='ORD-1')
+        _order_line(service, product, order='ORD-1')
+        _order_line(service, product, order='ORD-2', vendor='Amazon')
+        _order_line(service, product, order=None)
+
+        html = client.get(f'/h/product/{product.id}').get_data(as_text=True)
+
+        links = re.findall(r'class="[^"]*handheld-order-link[^"]*"\s+href="([^"]+)"', html)
+        assert links == ['/h/orders/DigiKey/ORD-1', '/h/orders/Amazon/ORD-2']
+        # Two orders: the action bar's button opens the choice between them.
+        assert re.search(r'id="handheld-order-btn"\s+href="#handheld-product-outstanding"', html)
+
+    def test_a_single_order_button_opens_it(self, client, service):
+        product = service.create_product(description='Widget')
+        _order_line(service, product, order='ORD-1')
+
+        html = client.get(f'/h/product/{product.id}').get_data(as_text=True)
+
+        assert re.search(r'id="handheld-order-btn"\s+href="/h/orders/DigiKey/ORD-1"', html)
+
+    def test_nothing_outstanding_shows_no_order_button(self, client, service):
+        product = service.create_product(description='Widget')
+
+        html = client.get(f'/h/product/{product.id}').get_data(as_text=True)
+
+        assert 'id="handheld-order-btn"' not in html
+        assert 'id="handheld-product-outstanding"' not in html

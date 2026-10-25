@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 from urllib.parse import unquote, urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -30,6 +30,7 @@ from app.catalog_service import (
     CatalogService,
     vendor_page_links,
 )
+from app.database import Product
 from app.services import order_vendors
 from app.exceptions import (
     AuthenticationError, CaptureDecisionRequired, ConfigurationError,
@@ -1109,18 +1110,7 @@ def purchase_receive(purchase_id):
 
     if request.method == 'POST':
         try:
-            service.receive_purchase(
-                purchase_id,
-                received_date=request.form.get('received_date'),
-                quantity=request.form.get('quantity'),
-                unit_price=request.form.get('unit_price'),
-                notes=request.form.get('notes'),
-                description=request.form.get('description'),
-                # The operator saying they looked in the drawer, which is the
-                # one thing that lets a receipt move the count's age (041
-                # FR-003). Unchecked posts nothing, so absence is the default.
-                counted=request.form.get('counted') == 'on',
-            )
+            _receive_purchase_from_form(service, purchase_id, request.form)
         except ValidationError as e:
             flash(e.message, 'error')
             return render_template(
@@ -1150,6 +1140,27 @@ def purchase_receive(purchase_id):
         purchase=purchase,
         product=product,
         form_data=None,
+    )
+
+
+def _receive_purchase_from_form(service: CatalogService, purchase_id: int, form) -> None:
+    """Receive a purchase from a posted receipt form (068 D7).
+
+    The field mapping both receive screens share: the desktop receipt page and
+    the handheld receive screen post the same fields, so the service sees the
+    same call from either. Raises the service's ``ValidationError`` unchanged.
+    """
+    service.receive_purchase(
+        purchase_id,
+        received_date=form.get('received_date'),
+        quantity=form.get('quantity'),
+        unit_price=form.get('unit_price'),
+        notes=form.get('notes'),
+        description=form.get('description'),
+        # The operator saying they looked in the drawer, which is the
+        # one thing that lets a receipt move the count's age (041
+        # FR-003). Unchecked posts nothing, so absence is the default.
+        counted=form.get('counted') == 'on',
     )
 
 
@@ -2285,8 +2296,26 @@ def purchase_receive_choice():
     "nothing outstanding for this part" and offers the product. Never an empty
     list, and never a 404.
     """
-    service = _get_catalog_service()
     scan = (request.args.get('scan') or '').strip()
+    candidates, product = _receive_choice(scan)
+
+    return render_template(
+        'product/receive_choice.html',
+        title='Which Line Did This Come From?',
+        scan=scan,
+        candidates=candidates,
+        product=product,
+    )
+
+
+def _receive_choice(scan: str) -> tuple[list, Optional[Product]]:
+    """The candidates for a receive-choice page, and the fallback product (068 D7).
+
+    The outstanding McMaster lines the scan names; with none, the McMaster
+    product carrying it, so the page can offer it. Shared by the desktop
+    receive-choice page and the handheld one.
+    """
+    service = _get_catalog_service()
     candidates = service.find_mcmaster_receivable(scan)
 
     product = None
@@ -2297,14 +2326,7 @@ def purchase_receive_choice():
             )
             if product is not None:
                 break
-
-    return render_template(
-        'product/receive_choice.html',
-        title='Which Line Did This Come From?',
-        scan=scan,
-        candidates=candidates,
-        product=product,
-    )
+    return candidates, product
 
 
 @bp.route('/products/mcmaster/orders/<order_number>')
@@ -2688,7 +2710,7 @@ def api_scan():
             'main.inventory_edit', ja_id=resolution.classification.value
         )
     elif resolution.outcome == 'receive':
-        payload['url'] = _receive_url(resolution)
+        payload['url'] = _receive_url(resolution, handheld=handheld)
     elif resolution.outcome == 'product' and handheld:
         payload['url'] = url_for('handheld.product', product_id=resolution.product.id)
     elif resolution.outcome == 'product':
@@ -2731,7 +2753,7 @@ def _order_url(vendor, order_number, highlight=''):
     )
 
 
-def _receive_url(resolution) -> str:
+def _receive_url(resolution, handheld: bool = False) -> str:
     """Where a scanned package should land.
 
     **One rule, every vendor** (029 FR-038 to FR-040). Three cases, and the
@@ -2763,6 +2785,10 @@ def _receive_url(resolution) -> str:
 
     ``app/static/js/scan-capture.js`` navigates to whatever this returns without
     inspecting the outcome, so it needs no change.
+
+    ``handheld`` (068, scan-api.md) swaps each target for its handheld screen
+    and changes nothing else: the branching, and the "already received" flash,
+    are the same for both.
     """
     purchases = resolution.purchases
     outstanding = [purchase for purchase in purchases if purchase.is_outstanding]
@@ -2779,10 +2805,14 @@ def _receive_url(resolution) -> str:
             # Uncoerced, as every value off a distributor label is: a cut-tape
             # quantity may be a length, and the field stays editable either way.
             params['quantity'] = fields['Q']
+        if handheld:
+            return url_for('handheld.receive', **params)
         return url_for('product.purchase_receive', **params)
 
     landing = order_vendors.for_vendor(vendor)
     if landing is not None and landing.receive_landing == order_vendors.LANDING_CHOICE_PAGE:
+        if handheld:
+            return url_for('handheld.receive_choose', scan=resolution.classification.value)
         return url_for(
             'product.purchase_receive_choice', scan=resolution.classification.value
         )
@@ -2793,6 +2823,11 @@ def _receive_url(resolution) -> str:
             'info',
         )
 
+    if handheld:
+        return url_for(
+            'handheld.order', vendor=vendor, order_number=order_number,
+            highlight=fields.get('P', ''),
+        )
     return _order_url(vendor, order_number, fields.get('P', ''))
 
 

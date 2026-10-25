@@ -1,0 +1,26 @@
+{% extends "handheld/base.html" %}
+{#
+  Captured orders with outstanding lines, the oldest first (US7, FR-023a).
+  Each is a full-width link to its handheld order screen.
+#}
+
+{% block screen %}
+<h1 class="h6 mb-2">Orders with outstanding lines</h1>
+<div id="handheld-orders">
+    {% for summary in orders %}
+    <a class="card handheld-card mb-2 text-decoration-none text-body handheld-order-row"
+       href="{{ url_for('handheld.order', vendor=summary.vendor, order_number=summary.order_number) }}">
+        <div class="card-body p-2">
+            <div class="fw-bold handheld-order-number">{{ summary.order_number }}</div>
+            <div class="small handheld-order-vendor">{{ summary.vendor }}</div>
+            <div class="small">
+                <span class="badge text-bg-warning handheld-order-outstanding">{{ summary.outstanding }} outstanding</span>
+                {% if summary.order_date %}<span class="text-body-secondary">ordered {{ summary.order_date.strftime('%-d %b %Y') }}</span>{% endif %}
+            </div>
+        </div>
+    </a>
+    {% else %}
+    <p class="text-muted" id="handheld-no-orders">No captured order has anything outstanding.</p>
+    {% endfor %}
+</div>
+{% endblock %}
