@@ -634,19 +634,31 @@ receive them. Exactly those two are received.
   - Run flake8 on the Python files this feature touched only.
 - [X] T065 Run `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" venv/bin/nox -s tests`. All
   pass.
-- [ ] T066 Final desktop-identity diff (quickstart §3). Re-run T001's curl loop into
+- [X] T066 Final desktop-identity diff (quickstart §3). Re-run T001's curl loop into
   `$SCRATCH/identity-final/` and `diff -r` against `identity-before/`. The only allowed
   differences are whitespace and the `d-none d-sm-block` classes. Record the result in the PR
   description.
-- [ ] T067 Run the full e2e suite detached:
+  - *Done 2026-10-25 (`068-baseline/identity-final/`, same capture test as T001): the only
+    difference from `identity-before/` is the two `d-none d-sm-block` classes on the product
+    label modal's help text in `product_detail.html`.*
+- [X] T067 Run the full e2e suite detached:
   `PATH="$HOME/.pyenv/versions/3.13.12/bin:$PATH" nohup venv/bin/nox -s e2e > "$SCRATCH/e2e-full.log" 2>&1 &`.
   Budget 20–25 minutes and poll the log tail. Every desktop test must pass with no desktop
   test file edited (SC-006). Confirm the working tree is clean afterwards.
-- [ ] T068 Run `nox -s screenshots_headless` detached and inspect `git status`.
+  - *Done 2026-10-25: 973 passed, 0 failed, 2 reruns, 19m 40s. Reruns:
+    `test_handheld_product.py::test_quantity_and_stock_status_change_as_on_the_desktop` (a tap
+    landing before the reloaded page wired its buttons; the test now waits for the scan entry's
+    focus after each reload) and the desktop
+    `test_material_field_validation.py::test_edit_form_accepts_valid_taxonomy_materials`
+    (flaked the same way on 2026-09-02/13/19, before this feature). Working tree clean after.*
+- [X] T068 Run `nox -s screenshots_headless` detached and inspect `git status`.
   - Desktop screenshots should not change materially. Screenshots churn on every run, so
     commit only images whose content genuinely changed.
   - Any real desktop change is an FR-025 regression: fix it rather than commit it.
   - Revert the rest with `git checkout -- <paths>`.
+  - *Done 2026-10-25: 23 PNGs changed, all data churn (footer line, random `WIT` codes,
+    dates relative to today); none shows the product label modal. Nothing committed; all
+    reverted.*
 - [ ] T069 **Manual, for Jason on the TC52, not an agent task.** Work through the
   device-verification checklist (quickstart.md §5):
   1. Configure DataWedge Send ENTER and the symbologies. Bookmark `/h/` and set it as the
