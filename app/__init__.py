@@ -157,6 +157,9 @@ def create_app(config_class=Config, storage_backend=None):
     from app.product import bp as product_bp
     app.register_blueprint(product_bp)
 
+    from app.handheld import bp as handheld_bp
+    app.register_blueprint(handheld_bp)
+
     # Make the version available to all templates
     @app.context_processor
     def inject_version():

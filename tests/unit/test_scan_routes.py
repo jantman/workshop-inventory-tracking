@@ -104,3 +104,42 @@ class TestCreateFormCarriesTheScan:
         page = client.get(url)
         assert page.status_code == 200
         assert b'00012345678905' in page.data
+
+
+class TestHandheldFlag:
+    """068: ``handheld: true`` changes only the URL, and only for the outcomes
+    that have a handheld screen. The cases above are the flag-absent contract."""
+
+    def test_an_item_goes_to_the_handheld_item_screen(self, client):
+        response = client.post('/api/scan', json={'scan': 'ja000123', 'handheld': True})
+
+        body = response.get_json()
+        assert body['outcome'] == 'item'
+        assert body['url'] == '/h/item/JA000123'
+
+    def test_a_product_goes_to_the_handheld_product_screen(self, client, service):
+        product = service.create_product(description='Blue widget')
+
+        response = client.post(
+            '/api/scan', json={'scan': product.internal_code, 'handheld': True}
+        )
+
+        body = response.get_json()
+        assert body['outcome'] == 'product'
+        assert body['product']['id'] == product.id
+        assert body['url'] == f'/h/product/{product.id}'
+
+    @pytest.mark.parametrize('scan', [VALID_UPC_A, 'total nonsense'])
+    def test_create_and_search_keep_their_desktop_url(self, client, scan):
+        desktop = client.post('/api/scan', json={'scan': scan}).get_json()
+        handheld = client.post('/api/scan', json={'scan': scan, 'handheld': True}).get_json()
+
+        assert desktop['outcome'] in ('create', 'search')
+        assert handheld['outcome'] == desktop['outcome']
+        assert handheld['url'] == desktop['url']
+
+    @pytest.mark.parametrize('flag', [False, None, 0, ''])
+    def test_a_falsy_flag_gives_the_desktop_url(self, client, flag):
+        response = client.post('/api/scan', json={'scan': 'ja000123', 'handheld': flag})
+
+        assert response.get_json()['url'] == '/inventory/edit/JA000123'

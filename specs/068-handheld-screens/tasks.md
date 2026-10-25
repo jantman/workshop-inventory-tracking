@@ -53,13 +53,17 @@ requires e2e coverage per story at a 360×512 touch viewport.
 
 **Purpose**: capture the desktop baseline before any desktop template changes.
 
-- [ ] T001 Capture the desktop-identity baseline per quickstart.md §3. Seed a dev database with
+- [X] T001 Capture the desktop-identity baseline per quickstart.md §3. Seed a dev database with
   at least one item, one product (with a purchase, an attachment and a location) and one
   outstanding purchase. Run the dev server on :5000. curl `/`, `/inventory`,
   `/inventory/move`, `/inventory/shorten`, `/products`, `/products/<id>`, `/products/move` and
   `/inventory/edit/<JA>` with the CSRF token and `content=` attributes stripped and whitespace
   squeezed. Save into `$SCRATCH/identity-before/`. Keep the seeded database for T020 and T066.
   Writes no repo files.
+  - *Done via the e2e `live_server` (allowed by the implement brief) instead of a dev server:
+    a throwaway capture test, kept with its output in the session scratchpad `068-baseline/`
+    (`identity-before/`). It also normalizes timestamps, the random WIT code and the footer
+    version, and adds `/purchases/<id>/receive` and `/products/outstanding`.*
 
 ---
 
@@ -67,21 +71,21 @@ requires e2e coverage per story at a 360×512 touch viewport.
 
 **Purpose**: the handheld shell, the shared JS and CSS, the blueprint and the e2e helpers.
 
-- [ ] T002 **(desktop)** In `app/templates/base.html`, wrap the `<nav>` in
+- [X] T002 **(desktop)** In `app/templates/base.html`, wrap the `<nav>` in
   `{% block navbar %}…{% endblock %}`, wrap the `<footer>` in `{% block footer %}…{% endblock %}`,
   and add an empty `{% block styles %}{% endblock %}` right after the `main.css` link (D3).
   Default block contents must render byte-identical markup.
-- [ ] T003 [P] **(desktop)** In `app/static/js/main.js`, define the default
+- [X] T003 [P] **(desktop)** In `app/static/js/main.js`, define the default
   `window.confirmAction = (message) => Promise.resolve(window.confirm(message))` (D10).
   Nothing calls it yet.
-- [ ] T004 [P] Create `app/static/css/handheld.css`, with every rule scoped under
+- [X] T004 [P] Create `app/static/css/handheld.css`, with every rule scoped under
   `.handheld-main` or a `.handheld-*` class (D3, D12):
   - a sticky compact header (`position: sticky; top: 0`)
   - a fixed bottom action bar, with matching bottom padding on `.handheld-main`
   - 44 px minimum tap targets (FR-008)
   - `overflow-wrap: anywhere` on summary and card text (FR-006)
   - full-width selection-card styles, used by later stories for attachments and order lines
-- [ ] T005 [P] Create `app/static/js/handheld.js` (D10, D11, controller-markup.md
+- [X] T005 [P] Create `app/static/js/handheld.js` (D10, D11, controller-markup.md
   "`handheld.js`"):
   - **Focus.** Focus `[data-handheld-scan]` on `DOMContentLoaded` with
     `{preventScroll: true}` (FR-002). Refocus it on `hidden.bs.modal`, and after a `click`
@@ -94,7 +98,7 @@ requires e2e coverage per story at a 360×512 touch viewport.
   - **Confirm.** Override `window.confirmAction` with a Bootstrap-modal confirm on
     `#handheld-confirm-modal`, `#handheld-confirm-message`, `#handheld-confirm-ok` and
     `#handheld-confirm-cancel`. It returns a Promise of a boolean (FR-026).
-- [ ] T006 Create `app/templates/handheld/base.html`, extending `base.html` (D3, D4):
+- [X] T006 Create `app/templates/handheld/base.html`, extending `base.html` (D3, D4):
   - **Overrides.** `navbar` becomes a header with a Home link to `/h/` (FR-005), a
     `{% block scan_entry %}` and a keyboard button. `footer` is empty. `styles` loads
     `handheld.css`. `main_container_class` is `handheld-main container-fluid px-2`.
@@ -106,18 +110,18 @@ requires e2e coverage per story at a 360×512 touch viewport.
   - **Script**: loads `handheld.js` after the base scripts.
 
   Depends on T002, T004 and T005.
-- [ ] T007 Create the blueprint. `app/handheld/__init__.py` defines
+- [X] T007 Create the blueprint. `app/handheld/__init__.py` defines
   `bp = Blueprint('handheld', __name__, url_prefix='/h')` and imports `routes`.
   `app/handheld/routes.py` starts empty apart from imports. Register the blueprint in
   `app/__init__.py` beside `main`, `admin` and `product` (D1). Author Jason Antman, 2026.
-- [ ] T008 [P] **(desktop)** In `app/static/js/scan-capture.js` `resolve()`, add
+- [X] T008 [P] **(desktop)** In `app/static/js/scan-capture.js` `resolve()`, add
   `handheld: true` to the `/api/scan` body only when
   `this.input.dataset.scanCapture === 'handheld'` (scan-api.md "Client"). The body for the bare
   desktop attribute stays `{"scan": …}`.
-- [ ] T009 [P] Add the `handheld_page` fixture to `tests/e2e/conftest.py`. It opens a
+- [X] T009 [P] Add the `handheld_page` fixture to `tests/e2e/conftest.py`. It opens a
   `browser.new_context(viewport={'width': 360, 'height': 512}, has_touch=True, is_mobile=True)`
   page, following `tests/e2e/test_touch_readiness.py:24`, and closes the context on teardown.
-- [ ] T010 [P] Create `tests/e2e/handheld.py` (D12, D14):
+- [X] T010 [P] Create `tests/e2e/handheld.py` (D12, D14):
   - `scan(page, code)`: types the code and presses Enter
   - `assert_handheld_layout(page, scan_selector, primary_selector)`:
     1. `expect(...).to_be_visible()` and `to_be_in_viewport()` for both selectors
@@ -146,18 +150,22 @@ are summary-only here. US4 and US2 fill them in.
 
 ### Tests
 
-- [ ] T011 [P] [US1] In `tests/unit/test_scan_routes.py`, add handheld-flag cases.
+- [X] T011 [P] [US1] In `tests/unit/test_scan_routes.py`, add handheld-flag cases.
   - With `handheld: true`: `item` returns `/h/item/<JA>` and `product` returns
     `/h/product/<id>`.
   - `create` and `search` return the same URL with and without the flag.
   - A falsy flag gives today's response.
   - Leave existing assertions untouched.
-- [ ] T012 [P] [US1] Create `tests/unit/test_handheld_routes.py`.
+- [X] T012 [P] [US1] Create `tests/unit/test_handheld_routes.py`.
   - `GET /h/` returns 200 with `#handheld-scan-input` carrying `inputmode="none"` and links
     to the four task URLs.
   - `GET /h/item/<JA>` returns 200 with the JA ID.
   - `GET /h/product/<id>` returns 200 with the description. An unknown id returns 404.
-- [ ] T013 [US1] Create `tests/e2e/test_handheld_landing.py`, covering US1 scenarios 1, 2, 4,
+  - *Unknown product id: the centralized `ItemNotFoundError` handler answers an HTML
+    request with a flash and a 302, as it does for `/products/<id>` (contracts/handheld-routes.md
+    "same handling as the desktop routes"). The test asserts equivalence with the desktop
+    response rather than a literal 404.*
+- [X] T013 [US1] Create `tests/e2e/test_handheld_landing.py`, covering US1 scenarios 1, 2, 4,
   5 and 6 plus FR-029:
   - **Scenario 1.** A JA ID goes to `/h/item/<JA>`.
   - **Scenario 2.** A `WIT…` code and a retail GTIN go to `/h/product/<id>`.
@@ -171,17 +179,17 @@ are summary-only here. US4 and US2 fill them in.
 
 ### Implementation
 
-- [ ] T014 [US1] In `app/product/routes.py` `api_scan`, read
+- [X] T014 [US1] In `app/product/routes.py` `api_scan`, read
   `handheld = bool(data.get('handheld'))`. When it is set, return
   `url_for('handheld.item', ja_id=…)` for `item` and `url_for('handheld.product', product_id=…)`
   for `product` (scan-api.md). Leave `receive`, `create` and `search` URLs unchanged for now.
   Resolution is untouched.
-- [ ] T015 [US1] Add `handheld.landing` (`/h/`) to `app/handheld/routes.py` and create
+- [X] T015 [US1] Add `handheld.landing` (`/h/`) to `app/handheld/routes.py` and create
   `app/templates/handheld/landing.html`. It has no data. The `screen` block shows four 44 px
   buttons: Move items, Move products, Shorten and Orders, linking to `/h/move?kind=items`,
   `/h/move?kind=products`, `/h/shorten` and `/h/orders` (FR-001, FR-004). Those targets come
   in later phases.
-- [ ] T016 [US1] Add minimal `handheld.item` (`/h/item/<ja_id>`) and `handheld.product`
+- [X] T016 [US1] Add minimal `handheld.item` (`/h/item/<ja_id>`) and `handheld.product`
   (`/h/product/<int:product_id>`) routes to `app/handheld/routes.py`.
   - item reads `InventoryService.get_canonical_item(ja_id)`; product reads
     `_product_or_404(service, product_id)` (data-model.md).

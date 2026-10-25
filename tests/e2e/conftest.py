@@ -52,3 +52,27 @@ def image_host():
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
+
+
+# The Zebra TC52's Chrome viewport in portrait, in CSS pixels (feature 068).
+HANDHELD_VIEWPORT = {"width": 360, "height": 512}
+
+
+@pytest.fixture
+def handheld_page(browser):
+    """A page on a handheld-sized touch context, for the /h/ screens.
+
+    Follows ``touch_page`` in test_touch_readiness.py. Scans are delivered with
+    ``page.keyboard`` (see tests/e2e/handheld.py), as DataWedge delivers them.
+    """
+    context = browser.new_context(
+        viewport=HANDHELD_VIEWPORT,
+        has_touch=True,
+        is_mobile=True,
+        ignore_https_errors=True,
+    )
+    page = context.new_page()
+    page.set_default_timeout(60000)
+    page.set_default_navigation_timeout(60000)
+    yield page
+    context.close()

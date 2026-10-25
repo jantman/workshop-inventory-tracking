@@ -2660,6 +2660,9 @@ def api_scan():
     """
     data = request.get_json(silent=True) or {}
     scan = data.get('scan')
+    # Sent by a handheld screen's scan box (068): only the URL chosen below
+    # differs. Resolution is the same either way.
+    handheld = bool(data.get('handheld'))
 
     if not isinstance(scan, str):
         return jsonify({
@@ -2672,7 +2675,9 @@ def api_scan():
 
     payload = resolution.to_dict()
     payload['success'] = True
-    if resolution.outcome == 'item':
+    if resolution.outcome == 'item' and handheld:
+        payload['url'] = url_for('handheld.item', ja_id=resolution.classification.value)
+    elif resolution.outcome == 'item':
         # No existence check: the edit page answers a missing JA ID with "not
         # found" and opens an inactive-only one, as the old lookup box relied on.
         payload['url'] = url_for(
@@ -2680,6 +2685,8 @@ def api_scan():
         )
     elif resolution.outcome == 'receive':
         payload['url'] = _receive_url(resolution)
+    elif resolution.outcome == 'product' and handheld:
+        payload['url'] = url_for('handheld.product', product_id=resolution.product.id)
     elif resolution.outcome == 'product':
         # from_scan is what makes FR-019 work: arriving at a known product from a
         # scan offers "add a purchase to this one", because during receiving that

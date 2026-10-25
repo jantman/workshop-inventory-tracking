@@ -1,0 +1,8 @@
+{% extends "handheld/base.html" %}
+
+{% block screen %}
+<div class="handheld-summary" id="handheld-product-summary" data-product-id="{{ product.id }}">
+    <h1 class="h5 mb-1" id="handheld-product-description">{{ product.description }}</h1>
+    <div id="handheld-product-location">{{ product.location or '' }}{% if product.sub_location %} / {{ product.sub_location }}{% endif %}</div>
+</div>
+{% endblock %}
