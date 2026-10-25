@@ -368,11 +368,11 @@ dialog opens with Print visible, a photo can be added and deleted, and Shorten o
 
 ### Tests
 
-- [ ] T035 [P] [US4] In `tests/unit/test_handheld_routes.py`, `/h/item/<missing>` and
+- [X] T035 [P] [US4] In `tests/unit/test_handheld_routes.py`, `/h/item/<missing>` and
   `/h/item/<inactive>` return 200 with their stated messages and a link to
   `/inventory/edit/<ja>` (handheld-routes.md, "Error behavior"). An active item renders type,
   shape, material, dimensions, length and location.
-- [ ] T036 [P] [US4] Create `tests/e2e/test_handheld_item.py`, covering US4 scenarios 1–6.
+- [X] T036 [P] [US4] Create `tests/e2e/test_handheld_item.py`, covering US4 scenarios 1–6.
   Seed with `live_server.add_test_data`, including a long-data item.
   - **Scenario 1.** `assert_handheld_layout(page, '#handheld-scan-input', <Label button>)`
     and the summary fields.
@@ -385,15 +385,17 @@ dialog opens with Print visible, a photo can be added and deleted, and Shorten o
   - **Scenario 5.** Shorten goes to `/h/shorten?ja_id=<ja>`, and Move goes to
     `/h/move?kind=items&ja_id=<ja>` with the item pending.
   - **Scenario 6.** Missing and inactive JA IDs.
+  - *Note (implementation):* missing/inactive screens have no action bar, so scenario 6 checks
+    the desktop link is in view and there is no sideways scroll instead of `assert_handheld_layout`.
 
 ### Implementation
 
-- [ ] T037 [P] [US4] **(desktop)** In `app/static/js/photo-manager.js` (about lines 640 and
+- [X] T037 [P] [US4] **(desktop)** In `app/static/js/photo-manager.js` (about lines 640 and
   657), replace `confirm(...)` with `await window.confirmAction(...)` (D10). The existing
   desktop photo e2e tests must pass unedited.
-- [ ] T038 [US4] Complete `handheld.item` in `app/handheld/routes.py`. Compute `state`
+- [X] T038 [US4] Complete `handheld.item` in `app/handheld/routes.py`. Compute `state`
   (`missing`, `inactive` or `active`) per data-model.md.
-- [ ] T039 [US4] Complete `app/templates/handheld/item.html` (FR-010–FR-012):
+- [X] T039 [US4] Complete `app/templates/handheld/item.html` (FR-010–FR-012):
   - **Summary.** JA ID, type, shape, material, the non-empty dimensions, length, location and
     sub-location.
   - **Missing or inactive.** A plain message and an "Open desktop page" link to
@@ -417,7 +419,7 @@ retained.
 
 ### Desktop refactor
 
-- [ ] T040 [US5] **(desktop)** In `app/main/routes.py`, extract the POST body of
+- [X] T040 [US5] **(desktop)** In `app/main/routes.py`, extract the POST body of
   `inventory_shorten` (about lines 1045–1119) into
   `handle_shorten_post(form_data, return_endpoint)`, with the same validation, audit log
   entries, flashes and `_execute_shortening_operation` call. Every redirect goes to
@@ -427,12 +429,12 @@ retained.
 
 ### Tests
 
-- [ ] T041 [P] [US5] In `tests/unit/test_handheld_routes.py`:
+- [X] T041 [P] [US5] In `tests/unit/test_handheld_routes.py`:
   - `GET /h/shorten?ja_id=<JA>` prefills `#source-ja-id`
   - `POST /h/shorten` with a valid shorter length shortens the item, keeps the inactive
     history row and redirects to `/h/shorten`
   - an invalid or longer length changes nothing
-- [ ] T042 [P] [US5] Create `tests/e2e/test_handheld_shorten.py`, covering US5 scenarios 1–3.
+- [X] T042 [P] [US5] Create `tests/e2e/test_handheld_shorten.py`, covering US5 scenarios 1–3.
   - **Scenario 1.** Scan a JA ID into `#source-ja-id`, then wait for `#current-length` to show
     the length. `assert_handheld_layout(page, '#source-ja-id', '#execute-shortening-btn')`.
   - **Scenario 2.** Shorten 1000 mm to 600 mm through `#confirm-operation` and Execute. Verify
@@ -442,10 +444,10 @@ retained.
 
 ### Implementation
 
-- [ ] T043 [US5] Add `handheld.shorten`, GET and POST, to `app/handheld/routes.py`.
+- [X] T043 [US5] Add `handheld.shorten`, GET and POST, to `app/handheld/routes.py`.
   - GET uses `resolve_handoff(...)` for `preselected_ja_id` and `rejected_items`.
   - POST calls `handle_shorten_post(request.form, 'handheld.shorten')`.
-- [ ] T044 [US5] Create `app/templates/handheld/shorten.html`, carrying every ID in
+- [X] T044 [US5] Create `app/templates/handheld/shorten.html`, carrying every ID in
   controller-markup.md "`InventoryShortenManager`":
   - `#shorten-form` with `method="POST"`, no `action`, and `csrf_token`
   - `#source-ja-id` (`data-handheld-scan`, `inputmode="none"`) in `scan_entry`
@@ -453,6 +455,10 @@ retained.
   - `#confirm-operation` and `#execute-shortening-btn` in `action_bar`
   - notes, summary and history below
   - load `inventory-shorten.js`
+  - *Note (implementation):* the action bar sits outside `#shorten-form`, so `#source-ja-id`,
+    `#confirm-operation` and `#execute-shortening-btn` carry `form="shorten-form"`. `#clear-form-btn`
+    is also in the action bar (Clear, Confirm, Execute), so a second item can be scanned after one
+    is loaded: the controller moves focus to `#new-length` on load.
 
 ---
 

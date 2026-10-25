@@ -1,0 +1,140 @@
+{% extends "handheld/base.html" %}
+{#
+  Handheld Shorten (US5): the desktop shorten page's InventoryShortenManager
+  markup (contracts/controller-markup.md), laid out for 360x512. Every ID the
+  controller binds is here, some visually hidden; the logic is unchanged, and
+  the form posts to the desktop's own handler (handle_shorten_post).
+
+  The scan entry (header) and the action bar sit outside #shorten-form, so
+  their fields name it with form="shorten-form".
+#}
+
+{% block scan_entry %}
+<input type="text"
+       class="form-control"
+       id="source-ja-id"
+       name="source_ja_id"
+       form="shorten-form"
+       data-handheld-scan
+       inputmode="none"
+       autocomplete="off"
+       pattern="JA\d{6}" required
+       {% if preselected_ja_id %}value="{{ preselected_ja_id }}"{% endif %}
+       title="Format: JA followed by 6 digits"
+       placeholder="Scan JA ID"
+       aria-label="Scan the JA ID to shorten">
+<span class="badge bg-secondary" id="scanner-status">Ready</span>
+{% endblock %}
+
+{% block scan_input_id %}source-ja-id{% endblock %}
+
+{% block screen %}
+<form id="shorten-form" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+    <div id="form-alerts"></div>
+
+    {% if rejected_items %}
+    <div class="alert alert-warning py-2 mb-2 small" id="handoff-rejected">
+        <i class="bi bi-exclamation-triangle"></i>
+        These items were not carried over:
+        <ul class="mb-0 mt-1">
+            {% for rejected in rejected_items %}
+            <li data-id="{{ rejected.id }}">
+                <strong>{{ rejected.id }}</strong> &mdash;
+                {% if rejected.reason == 'inactive' %}
+                no longer the active item, so it cannot be shortened
+                {% else %}
+                not found in the inventory
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    {# Compact: the display name already carries material, type, shape and
+       dimensions, so the separate fields are kept for the controller only. #}
+    <div id="item-details" class="d-none">
+        <div class="alert alert-info py-2 px-2 mb-2 small" id="handheld-shorten-item">
+            <div><strong id="item-display-name">-</strong></div>
+            <div>Current length <strong id="current-length">-</strong> in</div>
+            <div id="item-location">-</div>
+            <div class="visually-hidden">
+                <span id="item-material">-</span>
+                <span id="item-type">-</span>
+                <span id="item-shape">-</span>
+                <span id="item-status">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="item-not-found" class="alert alert-warning py-2 mb-2 small d-none">
+        <i class="bi bi-exclamation-triangle"></i>
+        Item not found or not suitable for shortening: it must exist, be active
+        and have a length.
+    </div>
+
+    <div id="shortening-section" style="display: none;">
+        <label for="new-length" class="form-label mb-1">New length *</label>
+        <div class="input-group mb-2">
+            <input type="text" class="form-control" id="new-length" name="new_length"
+                   pattern="[\d./\s]+" required
+                   placeholder="e.g. 12.5 or 12 1/2"
+                   title="Enter new length in inches (supports fractions like 1 1/2)">
+            <span class="input-group-text">in</span>
+        </div>
+
+        <div id="length-validation" class="d-none">
+            <div class="alert py-2 mb-2 small" id="length-validation-alert"></div>
+        </div>
+
+        <label for="cut-date" class="form-label mb-1">Cut date</label>
+        <input type="date" class="form-control mb-2" id="cut-date" name="cut_date">
+    </div>
+
+    <div id="notes-section" style="display: none;">
+        <label for="shortening-notes" class="form-label mb-1">Notes (optional)</label>
+        <textarea class="form-control mb-2" id="shortening-notes" name="shortening_notes" rows="2"></textarea>
+    </div>
+
+    <div class="card mb-2" id="summary-section" style="display: none;">
+        <div class="card-body p-2 small">
+            <div class="d-flex justify-content-between"><span>JA ID</span><span id="summary-ja-id" class="fw-bold">-</span></div>
+            <div class="d-flex justify-content-between"><span>Current length</span><span id="summary-current-length">-</span></div>
+            <div class="d-flex justify-content-between"><span>New length</span><span id="summary-new-length" class="text-primary fw-bold">-</span></div>
+            <div class="d-flex justify-content-between"><span>Removed</span><span id="summary-removed-length" class="text-danger">-</span></div>
+        </div>
+    </div>
+
+    <div class="small text-muted" id="history-section" style="display: none;">
+        <i class="bi bi-clock-history"></i>
+        The current version is kept in the item's history, and a new active
+        version with the new length takes the same JA ID.
+    </div>
+
+    {# Bound by the controller; the scan entry and Clear do their work here. #}
+    <div class="visually-hidden">
+        <button type="button" id="scan-ja-id-btn" tabindex="-1">Scan</button>
+        <button type="button" id="load-item-btn" tabindex="-1">Load</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block action_bar %}
+<button type="button" class="btn btn-outline-secondary" id="clear-form-btn" title="Clear form">
+    <i class="bi bi-eraser"></i> Clear
+</button>
+<label class="btn btn-outline-warning d-flex align-items-center justify-content-center gap-2" for="confirm-operation">
+    <input class="form-check-input m-0" type="checkbox" id="confirm-operation" name="confirm_operation" form="shorten-form">
+    Confirm
+</label>
+<button type="submit" class="btn btn-success" id="execute-shortening-btn" form="shorten-form" disabled>
+    <i class="bi bi-scissors"></i> Execute
+</button>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/inventory-shorten.js') }}"></script>
+{% endblock %}

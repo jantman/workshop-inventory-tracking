@@ -1,14 +1,75 @@
 {% extends "handheld/base.html" %}
+{#
+  An inventory item's handheld screen (US4): a short summary, the item's
+  photos through the desktop PhotoManager, and Label, Photos, Shorten and Move.
+  A missing or inactive JA ID says so and links to the desktop page instead.
+#}
 
 {% block screen %}
-<div class="handheld-summary" id="handheld-item-summary">
-    <h1 class="h4 mb-1" id="handheld-item-ja-id">{{ ja_id }}</h1>
-    {% if state == 'missing' %}
-    <p class="mb-0" id="handheld-item-state">No item with this JA ID.</p>
-    {% elif state == 'inactive' %}
-    <p class="mb-0" id="handheld-item-state">This item is inactive.</p>
+<div class="handheld-summary mb-2" id="handheld-item-summary">
+    <h1 class="h5 mb-1" id="handheld-item-ja-id">{{ ja_id }}</h1>
+    {% if state == 'active' %}
+    {% set dims = item.dimensions %}
+    <div id="handheld-item-kind">{{ item.material }} &middot; {{ item.item_type }}{% if item.shape %} &middot; {{ item.shape }}{% endif %}</div>
+    <div class="small" id="handheld-item-dimensions">
+        {%- for label, value in [('Width', dims.width), ('Thickness', dims.thickness), ('Wall', dims.wall_thickness)] if value -%}
+        <span class="me-2">{{ label }} {{ value }}&quot;</span>
+        {%- endfor -%}
+        <span class="fw-bold" id="handheld-item-length">Length {% if dims.length %}{{ dims.length }}&quot;{% else %}&mdash;{% endif %}</span>
+    </div>
+    <div class="small" id="handheld-item-location">{{ item.location or 'No location' }}{% if item.sub_location %} / {{ item.sub_location }}{% endif %}</div>
     {% else %}
-    <div id="handheld-item-location">{{ item.location or '' }}{% if item.sub_location %} / {{ item.sub_location }}{% endif %}</div>
+    <p class="mb-2" id="handheld-item-state">
+        {% if state == 'missing' %}No item with this JA ID.{% else %}This item is inactive.{% endif %}
+    </p>
+    <a class="btn btn-outline-primary" id="handheld-item-desktop-link"
+       href="{{ url_for('main.inventory_edit', ja_id=ja_id) }}">
+        <i class="bi bi-box-arrow-up-right"></i> Open desktop page
+    </a>
     {% endif %}
 </div>
+
+{% if state == 'active' %}
+<div class="card mb-3" id="handheld-item-photos">
+    <div class="card-body p-2">
+        <div id="photo-manager-container"></div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block action_bar %}
+{% if state == 'active' %}
+<button type="button" class="btn btn-outline-primary" id="handheld-label-btn">
+    <i class="bi bi-printer"></i> Label
+</button>
+<a class="btn btn-outline-primary" id="handheld-photos-btn" href="#handheld-item-photos">
+    <i class="bi bi-camera"></i> Photos
+</a>
+<a class="btn btn-outline-primary" id="handheld-shorten-btn"
+   href="{{ url_for('handheld.shorten', ja_id=item.ja_id) }}">
+    <i class="bi bi-scissors"></i> Shorten
+</a>
+<a class="btn btn-outline-primary" id="handheld-move-btn"
+   href="{{ url_for('handheld.move', kind='items', ja_id=item.ja_id) }}">
+    <i class="bi bi-arrow-left-right"></i> Move
+</a>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if state == 'active' %}
+<script src="{{ url_for('static', filename='js/label-count.js') }}"></script>
+<script src="{{ url_for('static', filename='js/label-printing-modal.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const jaId = {{ item.ja_id | tojson }};
+    PhotoManager.init('#photo-manager-container', { itemId: jaId, readOnly: false });
+    document.getElementById('handheld-label-btn').addEventListener('click', async () => {
+        await showLabelPrintingModal(jaId, false);
+    });
+});
+</script>
+{% endif %}
 {% endblock %}

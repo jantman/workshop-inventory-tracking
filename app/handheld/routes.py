@@ -8,9 +8,10 @@ Author: Jason Antman, 2026.
 """
 
 from flask import abort, render_template, request
+from werkzeug.wrappers import Response
 
 from app.handheld import bp
-from app.main.routes import _get_inventory_service
+from app.main.routes import _get_inventory_service, handle_shorten_post
 from app.photo_service import PhotoService
 from app.product.routes import (
     _get_catalog_service,
@@ -101,4 +102,23 @@ def move():
         preselected_items=handoff.preselected_items,
         rejected_items=handoff.rejected_items,
         **wording,
+    )
+
+
+@bp.route('/shorten', methods=['GET', 'POST'])
+def shorten() -> str | Response:
+    """Handheld Shorten (US5), driven by the desktop InventoryShortenManager.
+
+    GET takes a ``?ja_id=`` hand-off exactly as the desktop shorten page does.
+    POST runs the desktop's own handler, so validation, audit logging, flashes
+    and the history-preserving shortening are the same code (FR-013).
+    """
+    if request.method == 'POST':
+        return handle_shorten_post(request.form, 'handheld.shorten')
+    handoff = resolve_handoff(request.args.get('ja_id'), _get_inventory_service())
+    return render_template(
+        'handheld/shorten.html',
+        title='Shorten',
+        preselected_ja_id=handoff.first_accepted,
+        rejected_items=handoff.rejected_items,
     )

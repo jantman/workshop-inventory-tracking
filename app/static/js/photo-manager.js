@@ -637,7 +637,7 @@ const PhotoManager = {
 
             // Delete single photo
             deletePhoto: async function(photo) {
-                if (!confirm(`Delete photo "${photo.name}"?`)) return;
+                if (!(await window.confirmAction(`Delete photo "${photo.name}"?`))) return;
 
                 if (await this.removePhoto(photo)) {
                     PhotoManager.showToast('Photo deleted', 'success');
@@ -654,7 +654,7 @@ const PhotoManager = {
                 if (selectedPhotos.length === 0) return;
 
                 const noun = selectedPhotos.length === 1 ? 'photo' : 'photos';
-                if (!confirm(`Delete ${selectedPhotos.length} ${noun}?`)) return;
+                if (!(await window.confirmAction(`Delete ${selectedPhotos.length} ${noun}?`))) return;
 
                 let deleted = 0;
                 for (const photo of selectedPhotos) {

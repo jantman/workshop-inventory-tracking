@@ -281,3 +281,22 @@
 .handheld-main #move-queue-list td:nth-child(4)::before {
     content: "\2192\00a0";
 }
+
+/* Item screen (US4). Photos in the action bar scrolls here; the margin keeps
+   the card's top clear of the sticky header. */
+.handheld-main #handheld-item-photos {
+    scroll-margin-top: 4rem;
+}
+
+/* Shorten screen (US5): the confirm checkbox shares the action bar with Clear
+   and Execute, as a button-sized tap target. */
+.handheld-action-bar label.btn .form-check-input {
+    flex: 0 0 auto;
+}
+
+/* By id: InventoryShortenManager rewrites the validation alert's className. */
+.handheld-main #length-validation-alert {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    font-size: 0.875em;
+}
