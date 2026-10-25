@@ -14,6 +14,8 @@ the POST.
 Author: Jason Antman, 2026.
 """
 
+from decimal import Decimal
+
 import pytest
 from playwright.sync_api import expect
 
@@ -133,4 +135,31 @@ def test_a_longer_length_is_refused_and_nothing_changes(handheld_page, live_serv
     )
     length, history = item_state(page, live_server, "JA000504")
     assert length == 1000
+    assert history["total_items"] == 1
+
+
+@pytest.mark.e2e
+def test_scanning_a_second_item_clears_the_length_and_confirm(handheld_page, live_server):
+    """A scan replaces the loaded item, and must not carry its length and Confirm over.
+
+    Otherwise one tap on Execute would cut the second item to the first's length.
+    """
+    page = handheld_page
+    live_server.add_test_data([long_item("JA000505"), long_item("JA000506", length=Decimal("800"))])
+    load_by_scan(page, live_server, "JA000505")
+
+    page.locator("#new-length").fill("600")
+    page.locator("#confirm-operation").check()
+    expect(page.locator(EXECUTE)).to_be_enabled()
+
+    scan(page, "JA000506")
+
+    expect(page.locator("#current-length")).to_have_text("800")
+    expect(page.locator("#summary-ja-id")).to_have_text("JA000506")
+    expect(page.locator("#new-length")).to_have_value("")
+    expect(page.locator("#confirm-operation")).not_to_be_checked()
+    expect(page.locator("#summary-new-length")).to_have_text("-")
+    expect(page.locator(EXECUTE)).to_be_disabled()
+    length, history = item_state(page, live_server, "JA000506")
+    assert length == 800
     assert history["total_items"] == 1
