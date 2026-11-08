@@ -238,7 +238,7 @@ def orders() -> str:
     )
 
 
-@bp.route('/orders/<vendor>/<order_number>')
+@bp.route('/orders/<path:vendor>/<order_number>')
 def order(vendor: str, order_number: str) -> str:
     """One captured order's lines as selectable cards (US7, research.md D13).
 
@@ -256,7 +256,7 @@ def order(vendor: str, order_number: str) -> str:
     )
 
 
-@bp.route('/orders/<vendor>/<order_number>/receive', methods=['POST'])
+@bp.route('/orders/<path:vendor>/<order_number>/receive', methods=['POST'])
 def order_receive(vendor: str, order_number: str) -> Response:
     """Receive the selected lines, exactly as the desktop order page does (FR-023)."""
     service = _get_catalog_service()

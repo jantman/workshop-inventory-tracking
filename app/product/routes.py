@@ -1838,7 +1838,7 @@ def orders_list():
     )
 
 
-@bp.route('/products/orders/<vendor>/<order_number>')
+@bp.route('/products/orders/<path:vendor>/<order_number>')
 def order_detail(vendor, order_number):
     """A captured order, for any vendor (029 FR-028 to FR-032).
 
@@ -1901,7 +1901,7 @@ def order_detail(vendor, order_number):
     )
 
 
-@bp.route('/products/orders/<vendor>/<order_number>/receive', methods=['POST'])
+@bp.route('/products/orders/<path:vendor>/<order_number>/receive', methods=['POST'])
 def order_receive_lines(vendor, order_number):
     """Receive the ticked lines of an order, as ordered, on one date (060).
 
@@ -1974,7 +1974,7 @@ def outstanding_receive():
     return redirect(url_for('product.outstanding_products'))
 
 
-@bp.route('/products/orders/<vendor>/<order_number>/edit', methods=['GET', 'POST'])
+@bp.route('/products/orders/<path:vendor>/<order_number>/edit', methods=['GET', 'POST'])
 def order_edit(vendor, order_number):
     """Correct an order's number, date and customer reference (061 US3).
 

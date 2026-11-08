@@ -36,9 +36,9 @@ SCAN = "#handheld-scan-input"
 RECEIVE_SELECTED = "#handheld-order-receive-btn"
 FLASH_OK = ".alert-success.alert-dismissible"
 
-# A vendor name with a slash cannot be an order URL segment on the desktop
-# either (the default route converter), so the long vendor drops it.
-VENDOR = LONG_VENDOR.replace(" / ", " and ")
+# The long vendor keeps its " / ": order routes take the vendor as a path
+# segment, so a slash in it must still reach the order (issue #219).
+VENDOR = LONG_VENDOR
 ORDER = ORDER_NUMBERS["Amazon"]
 
 
