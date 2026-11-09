@@ -10,8 +10,11 @@ Tests the complete workflow for shortening inventory items using keep-same-ID ap
 - Error handling and edge cases
 """
 
+from decimal import Decimal
+
 import pytest
 from playwright.sync_api import expect
+from tests.e2e.handheld import long_item
 from tests.e2e.pages.base_page import BasePage
 
 
@@ -512,3 +515,57 @@ def test_form_reset_functionality(page, live_server):
     expect(page.locator("#shortening-section")).not_to_be_visible()
     expect(page.locator("#notes-section")).not_to_be_visible()
 
+
+@pytest.mark.e2e
+def test_loading_a_second_item_clears_the_length_and_confirm(page, live_server):
+    """Loading a different item must not carry the previous item's length and Confirm over.
+
+    Otherwise one click on Execute would cut the second item to the first's
+    length (issue #220). ``#current-length`` is filled after the awaited fetch
+    and the reset precedes it, so its text is the load's completion signal.
+    """
+    live_server.add_test_data([long_item("JA000507"), long_item("JA000508", length=Decimal("800"))])
+    shorten_page = ShortenItemsPage(page, live_server.url)
+    shorten_page.navigate()
+    shorten_page.simulate_ja_id_scan("JA000507")
+    expect(page.locator("#current-length")).to_have_text("1000")
+
+    shorten_page.enter_new_length("600")
+    shorten_page.check_confirm_operation()
+    expect(page.locator("#execute-shortening-btn")).to_be_enabled()
+
+    shorten_page.simulate_ja_id_scan("JA000508")
+
+    expect(page.locator("#current-length")).to_have_text("800")
+    expect(page.locator("#summary-ja-id")).to_have_text("JA000508")
+    expect(page.locator("#new-length")).to_have_value("")
+    expect(page.locator("#confirm-operation")).not_to_be_checked()
+    expect(page.locator("#summary-new-length")).to_have_text("-")
+    expect(page.locator("#execute-shortening-btn")).to_be_disabled()
+    item = page.request.get(f"{live_server.url}/api/items/JA000508").json()["item"]
+    assert Decimal(item["dimensions"]["length"]) == 800
+
+
+@pytest.mark.e2e
+def test_reloading_the_same_item_keeps_the_length_and_confirm(page, live_server):
+    """The reset is only for a different item: the scanner timer can reload the same one.
+
+    ``loadItem()`` sets ``#scanner-status`` to "Loading Item" before its awaited
+    fetch and "Item Loaded" after the reset point, so waiting for "Item Loaded"
+    after the click means the reload has finished.
+    """
+    live_server.add_test_data([long_item("JA000509")])
+    shorten_page = ShortenItemsPage(page, live_server.url)
+    shorten_page.navigate()
+    shorten_page.simulate_ja_id_scan("JA000509")
+    expect(page.locator("#current-length")).to_have_text("1000")
+
+    shorten_page.enter_new_length("600")
+    shorten_page.check_confirm_operation()
+
+    page.locator("#load-item-btn").click()
+
+    expect(page.locator("#scanner-status")).to_have_text("Item Loaded")
+    expect(page.locator("#new-length")).to_have_value("600")
+    expect(page.locator("#confirm-operation")).to_be_checked()
+    expect(page.locator("#execute-shortening-btn")).to_be_enabled()

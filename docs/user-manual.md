@@ -892,6 +892,9 @@ Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA00
 4. **New ID**: Assign new JA ID for shortened piece
 5. **Automatic**: Original item becomes inactive, new item created
 
+Loading a different JA ID clears the new length and the confirmation, so nothing
+typed for one item is applied to the next.
+
 ## The Product Catalog
 
 The **inventory** side of this application tracks metal stock by JA ID. The

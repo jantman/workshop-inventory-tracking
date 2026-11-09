@@ -182,13 +182,12 @@ class InventoryShortenManager {
                 return;
             }
             
-            // On the handheld a scan loads the next item without clearing the
-            // page, so the previous item's length and Confirm must not carry
-            // over: one tap on Execute would cut the new item to that length.
-            // Only on a different item -- the input's scanner timer reloads
-            // the same one after Enter, possibly after the length was typed.
-            if (this.sourceJaIdInput.hasAttribute('data-handheld-scan')
-                    && this.currentItem && this.currentItem.ja_id !== item.ja_id) {
+            // Loading the next item does not clear the page, so the previous
+            // item's length and Confirm must not carry over: one click on
+            // Execute would cut the new item to that length. Only on a
+            // different item -- the input's scanner timer reloads the same
+            // one after Enter, possibly after the length was typed.
+            if (this.currentItem && this.currentItem.ja_id !== item.ja_id) {
                 this.newLengthInput.value = '';
                 this.confirmOperationCheckbox.checked = false;
                 this.lengthValidation.classList.add('d-none');
