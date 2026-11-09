@@ -236,8 +236,9 @@ it (validation errors guide the assistant).
 **Inventory item tools**
 
 - **FR-010**: Search items with filters for: material (including hierarchical material
-  matching), item type, shape, length/width/thickness/wall/diameter ranges, thread, location,
-  sub-location, free text, and a result limit and offset.
+  matching), item type, shape, length/width/thickness/wall-thickness ranges, thread, location (text),
+  notes text, JA ID, precision, inactive rows on request, and a result limit and offset
+  (the Advanced Search filter set).
 - **FR-011**: Get one item's details by JA ID, including its history.
 - **FR-012**: Add one or more items (quantity) with the same fields the Add Item API accepts,
   returning allocated JA IDs.
