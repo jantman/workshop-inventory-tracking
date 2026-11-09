@@ -8,6 +8,7 @@ item-history invariants are the web's (research.md R4).
 Author: Jason Antman, 2026.
 """
 
+from datetime import datetime
 from typing import Any, Optional
 
 from app.main.routes import (
@@ -265,6 +266,25 @@ _ADD_PROPERTIES = {
 }
 
 
+def _check_item_inputs(supplied: dict, thread_series: Any) -> None:
+    """Refuse inputs the form parser would silently drop.
+
+    The web form cannot send these (a date picker, and thread fields shown only
+    once a series is chosen), so the parser never had to refuse them; an
+    assistant can, and would otherwise be told the call succeeded.
+    """
+    purchase_date = supplied.get('purchase_date')
+    if purchase_date:
+        try:
+            datetime.strptime(str(purchase_date), '%Y-%m-%d')
+        except ValueError:
+            raise ToolError(f'Invalid purchase_date {purchase_date!r}: use YYYY-MM-DD')
+    has_series = bool(thread_series) and str(thread_series) != 'None'
+    for key in ('thread_size', 'thread_handedness'):
+        if supplied.get(key) and not has_series:
+            raise ToolError(f'{key} needs thread_series: an item without a thread series stores no thread fields')
+
+
 @tool(
     name='add_items',
     title='Add inventory items',
@@ -279,6 +299,7 @@ _ADD_PROPERTIES = {
     read_only=False,
 )
 def add_items(args: dict) -> dict:
+    _check_item_inputs(args, args.get('thread_series'))
     body = dict(args)
     body.setdefault('active', True)
     if 'quantity' in body:
@@ -338,6 +359,7 @@ def edit_item(args: dict) -> dict:
         else:
             form_data[key] = _form_value(value)
 
+    _check_item_inputs(args, form_data.get('thread_series'))
     outcome = _edit_item_from_form(ja_id, item, form_data)
     if outcome['status'] != 'ok':
         message = outcome['message']

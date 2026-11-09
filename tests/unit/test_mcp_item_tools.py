@@ -13,8 +13,8 @@ from tests.unit.mcp_helpers import fails, item_count, ok, seed_item, seed_materi
 _STORED_FIELDS = (
     'item_type', 'shape', 'material', 'length', 'width', 'thickness', 'wall_thickness',
     'weight', 'thread_series', 'thread_handedness', 'thread_size', 'location',
-    'sub_location', 'purchase_location', 'vendor', 'vendor_part', 'notes', 'precision',
-    'active',
+    'sub_location', 'purchase_date', 'purchase_price', 'purchase_location', 'vendor',
+    'vendor_part', 'notes', 'precision', 'active',
 )
 
 
@@ -150,6 +150,24 @@ class TestAddItems:
         assert 'location' in error
         assert item_count(test_storage) == 0
 
+    def test_thread_size_without_series_writes_nothing(self, client, test_storage):
+        before = item_count(test_storage)
+        error = fails(client, 'add_items', {'item_type': 'Bar', 'shape': 'Round',
+                                            'material': 'Steel', 'location': 'Rack A',
+                                            'length': '12', 'width': '1',
+                                            'thread_size': '1/4-20'})['error']
+        assert 'thread_series' in error
+        assert item_count(test_storage) == before
+
+    def test_malformed_purchase_date_writes_nothing(self, client, test_storage):
+        before = item_count(test_storage)
+        error = fails(client, 'add_items', {'item_type': 'Bar', 'shape': 'Round',
+                                            'material': 'Steel', 'location': 'Rack A',
+                                            'length': '12', 'width': '1',
+                                            'purchase_date': '11/2026'})['error']
+        assert 'purchase_date' in error
+        assert item_count(test_storage) == before
+
     def test_parity_with_the_json_api(self, client, test_storage):
         payload = {
             'item_type': 'Tube', 'shape': 'Round', 'material': 'Steel', 'location': 'Rack C',
@@ -187,6 +205,42 @@ class TestEditItem:
         assert item.vendor == 'ACME'
         assert item.location == 'Rack A'
         assert item.active is True
+
+    def test_edit_of_one_field_round_trips_every_other(self, client, test_storage):
+        from datetime import datetime
+        seed_item(test_storage, 'JA000036', item_type='Tube', shape='Round',
+                  length=Decimal('24.5'), width=Decimal('1.25'),
+                  wall_thickness=Decimal('0.065'), weight=Decimal('1.75'),
+                  thread_series='UNC', thread_handedness='LH', thread_size='1/4-20',
+                  sub_location='Top', purchase_date=datetime(2025, 3, 14),
+                  purchase_price=Decimal('12.50'), purchase_location='Online',
+                  vendor='ACME', vendor_part='A-1', notes='before', precision=True)
+        before = _stored(test_storage, 'JA000036')
+
+        result = ok(client, 'edit_item', {'ja_id': 'JA000036', 'notes': 'after'})
+        assert result['changed_fields'] == ['notes']
+
+        after = _stored(test_storage, 'JA000036')
+        for field in _STORED_FIELDS:
+            if field != 'notes':
+                assert getattr(after, field) == getattr(before, field), field
+        assert after.notes == 'after'
+
+    @pytest.mark.parametrize('bad', ['2026-02-30', '11/2026', '2026/11/01'])
+    def test_malformed_purchase_date_is_refused(self, client, test_storage, bad):
+        from datetime import datetime
+        seed_item(test_storage, 'JA000037', purchase_date=datetime(2025, 3, 14))
+        error = fails(client, 'edit_item', {'ja_id': 'JA000037',
+                                            'purchase_date': bad})['error']
+        assert 'purchase_date' in error
+        assert _stored(test_storage, 'JA000037').purchase_date == datetime(2025, 3, 14)
+
+    def test_thread_size_without_series_is_refused(self, client, test_storage):
+        seed_item(test_storage, 'JA000038')
+        error = fails(client, 'edit_item', {'ja_id': 'JA000038',
+                                            'thread_size': '1/4-20'})['error']
+        assert 'thread_series' in error
+        assert _stored(test_storage, 'JA000038').thread_size is None
 
     def test_deactivate(self, client, test_storage):
         seed_item(test_storage, 'JA000031')
