@@ -92,6 +92,28 @@
     </div>
     {% endif %}
 
+    {# Scanned subjects waiting for one shared destination (069). Same IDs as
+       move/_scan_move.html; filled in by MoveManager, hidden while empty. #}
+    <div class="card mb-2 d-none" id="scan-group">
+        <div class="card-body p-2">
+            <h2 class="h6">
+                <i class="bi bi-collection"></i> Awaiting a destination
+                <span class="badge bg-warning text-dark ms-1" id="scan-group-count"></span>
+            </h2>
+            <table class="table table-sm mb-0">
+                <thead>
+                    <tr>
+                        <th>{{ noun|title }}</th>
+                        <th>Current Location</th>
+                        <th>Current Sub-Location</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="scan-group-rows"></tbody>
+            </table>
+        </div>
+    </div>
+
     <div class="alert alert-info py-2 mb-2 small" id="input-status">
         <i class="bi bi-info-circle"></i>
         <span id="status-text">Ready to scan first {{ id_label }}</span>
@@ -115,7 +137,7 @@
         </div>
         <div class="card-body p-2">
             <div id="move-queue-empty" class="text-center text-muted py-2 small">
-                No {{ nouns }} queued. Scan a {{ id_label }}, then a location; scan
+                No {{ nouns }} queued. Scan a {{ id_label }} (or several), then a location; scan
                 <code>&gt;&gt;DONE&lt;&lt;</code> when finished.
             </div>
 

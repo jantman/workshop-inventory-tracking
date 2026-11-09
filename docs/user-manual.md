@@ -752,8 +752,31 @@ count means the answer is only as good as the records.
 
 The Move Items feature allows you to efficiently relocate multiple inventory items in a single batch operation. The system supports moving items to both primary locations and optional sub-locations.
 
-There are two ways in: scan items on the Move Items page one at a time, or pick
-them from a list first and let the page start with them already loaded.
+There are three ways in: scan items on the Move Items page one at a time, scan
+several items that are all going to the same place and then their location once,
+or pick them from a list first and let the page start with them already loaded.
+
+#### Scanning Several Items to One Location
+
+When the items in your hand are all going to the same place, scan every item's
+JA ID first, then the location once:
+
+1. **Scan each JA ID** one after another. From the second one on, the page lists
+   them under *Awaiting a Destination* with each item's current location. Nothing
+   is queued yet.
+2. **Scan the location.** Every item in the list is queued for it.
+3. **Sub-location (optional)**: scan or type one next and it applies to **all**
+   of them. Scanning another JA ID instead starts the next move.
+
+- **A mistake in the list?** A JA ID already waiting or already queued is refused
+  with a message. Use the **×** on a row to take an item out before you scan the
+  location.
+- **Validate waits for the location.** While items are waiting, Validate &
+  Preview is unavailable and `>>DONE<<` does not queue them; scan their location
+  or remove them first.
+- **Forgot a location?** If you scan the next JA ID without scanning the previous
+  item's location, the two simply wait together for the next location. Remove
+  one from the list if they belong in different places.
 
 #### Moving a Group of Selected Items
 
@@ -859,7 +882,18 @@ Scan: >>DONE<<
 ```
 Result: JA000200 moved to M3-C / Shelf-A
 
-**Example 3: Batch Move Multiple Items**
+**Example 3: Several Items to One Place**
+```
+Scan: JA000400
+Scan: JA000401
+Scan: JA000402      (all three now await a destination)
+Scan: M6-A
+Scan: Bin-4         (applies to all three)
+Scan: >>DONE<<
+```
+Result: JA000400, JA000401 and JA000402 all moved to M6-A/Bin-4
+
+**Example 4: Batch Move Multiple Items**
 ```
 Scan: JA000300
 Scan: M4-D
@@ -876,7 +910,7 @@ Result: Three items moved - JA000300 to M4-D/Bin-1, JA000301 to M4-D/Bin-2, JA00
 #### Tips for Efficient Moving
 
 - **Barcode Scanner**: Use a keyboard wedge barcode scanner for fastest data entry
-- **Batch Related Items**: Group items going to the same location to minimize scanning
+- **Batch Related Items**: Scan every item going to the same location, then the location once
 - **Review Before Execute**: Always validate the queue before executing to catch errors
 - **Clear Sub-Locations**: When reorganizing, move items without sub-locations first to clear old data
 - **Manual Entry Mode**: Check the "Manual Entry Mode" checkbox if you need to type values instead of scanning
@@ -1084,6 +1118,15 @@ For each product:
 4. Scan the next product's label, or `>>DONE<<` when you have finished.
 
 Then **Validate & Preview** and **Execute Moves**, exactly as for items.
+
+**Several products going to the same place** -- ten labelled bags for one shelf
+-- need the location only once: scan every product's label, then the location,
+then (optionally) a sub-location, which applies to all of them. The waiting
+products are listed under *Awaiting a Destination* until the location is
+scanned, and the **×** on a row takes one out. See
+[Scanning Several Items to One Location](#scanning-several-items-to-one-location);
+it works the same way here, except that, as above, anything that is not a
+product or item label is taken as the location.
 
 - **A product with no location yet** is fine: its current location shows as
   *None* in the queue, and the move gives it one.

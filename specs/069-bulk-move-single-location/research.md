@@ -41,10 +41,15 @@
 
 ## R4. Readiness of current locations
 
-- **Decision**: Each pending entry carries its own lookup promise (`ready`); the location
-  transition awaits `Promise.all` over the entries present at that moment. Replaces the single
-  `pendingMovesReady` promise, which assumed the group was fixed at load.
-- **Rationale**: A scanned group grows one lookup at a time.
+- **Decision**: Each pending entry carries its own lookup promise (`ready`), started when the
+  subject arrives. The location transition queues the group **synchronously**; a row whose
+  lookup has not returned shows "Unknown" until its `ready` resolves, then is patched and
+  re-rendered. Replaces the single `pendingMovesReady` promise, which assumed the group was
+  fixed at load and held the transition open on the network.
+- **Rationale**: A scanned group grows one lookup at a time. Holding the transition open
+  across an `await` leaves a window in which a sub-location could find no rows to apply to,
+  or an ID could join a group already on its way to the queue. Synchronous queueing has no
+  such window; the lookups have almost always landed by the time a location is scanned.
 
 ## R5. Showing the waiting group
 

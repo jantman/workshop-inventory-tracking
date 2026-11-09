@@ -141,8 +141,9 @@ both are queued for that location.
   and the queue like any other ("Unknown" current location) and is caught at validation, as
   today.
 - **The location scan arrives before every group member's current location has been
-  looked up.** The group is queued only once those lookups have finished, so no row shows
-  "Unknown" for a subject whose location is known.
+  looked up.** The group is queued at once; a row whose lookup is still outstanding shows
+  "Unknown" until it returns and is then corrected, so no row is left showing "Unknown" for
+  a subject whose location is known.
 - **Products' free-text locations.** On the Move Products page any input that is not a
   product code or a JA ID, while a group is waiting, is the destination. This is the rule
   the page already applies after a single code.

@@ -76,12 +76,23 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
     product location is free text, so while that page waits for a location
     (`location`, `bulk_location`) any text is one. Asking `classifyInput` in the
     page's current state, before typing, is what keeps that correct here.
+
+    Feature 069 replaced the 026 "abandon" rule: an ID scanned while the page
+    waits for a location now forms a *scanned group* (`group_location`) with the
+    subject already waiting, and further IDs join it. Each accepted ID appends a
+    row to `#scan-group-rows` synchronously, so the row count is the signal. A
+    location queues the whole group at once, like a preselected group. An ID
+    already waiting (the subject in progress, or one in a group) is refused as
+    a duplicate, like one already queued.
     """
     before = page.evaluate(
         "value => ({ state: window.moveManager.currentExpectedInput,"
         "         kind: window.moveManager.classifyInput(value),"
         "         idLabel: window.moveManager.idLabel,"
         "         duplicate: window.moveManager.moveQueue.some("
+        "             e => e.id === window.moveManager.normalizeId(value))"
+        "           || window.moveManager.currentId === window.moveManager.normalizeId(value)"
+        "           || window.moveManager.pendingMoves.some("
         "             e => e.id === window.moveManager.normalizeId(value)),"
         "         queued: window.moveManager.moveQueue.length,"
         "         pending: window.moveManager.pendingMoves.length,"
@@ -115,7 +126,7 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
         expect(page.locator("#form-alerts .alert")).to_have_count(before["alerts"] + 1)
 
     if value == ">>DONE<<":
-        if state == "bulk_location":
+        if state in ("bulk_location", "group_location"):
             # Nothing is queued: the group still has no destination. The page
             # says why, and saying so is the only thing that changes.
             _rejected()
@@ -137,16 +148,18 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
             _rejected()
             return
         if before["duplicate"]:
-            # Already queued: refused, and the machine stays where it was.
+            # Already queued or already waiting: refused, and the machine stays
+            # where it was.
             _rejected()
             return
         if state == "location":
-            # The wedge fix: this unambiguously means the previous item's
-            # location was missed, so the machine resolves onto the new item.
-            # #scanner-status already reads `Waiting for Location` and so proves
-            # nothing here; #status-text names the subject now in progress
-            # (normalized, so compared case-insensitively).
-            expect(status_text).to_contain_text(value, ignore_case=True)
+            # A second ID before any location starts a scanned group of two:
+            # the subject in progress and this one.
+            expect(page.locator("#scan-group-rows tr")).to_have_count(2)
+            return
+        if state == "group_location":
+            # Joins the scanned group.
+            expect(page.locator("#scan-group-rows tr")).to_have_count(before["pending"] + 1)
             return
         if state == "id_or_sub_location" and before["inProgress"]:
             # One action, two completions. Waiting on either alone races.
@@ -155,8 +168,8 @@ def scan_on_move_page(page: Page, value: str, press_enter: bool = True) -> None:
         return
 
     if kind == "location":
-        if state == "bulk_location":
-            # The destination for the whole preselected group, queued at once.
+        if state in ("bulk_location", "group_location"):
+            # The destination for the whole group, queued at once.
             expect(queue_count).to_have_text(_queue_text(queued + before["pending"]))
             return
         if state in ("id", "id_or_sub_location"):

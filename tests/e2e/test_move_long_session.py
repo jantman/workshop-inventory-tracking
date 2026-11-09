@@ -11,7 +11,8 @@ executed them:
 
 * the state machine's recovery when a JA ID arrives while a location is expected
   -- the wedge, which used to warn and leave the state untouched, so every
-  subsequent scan bounced off it and nothing was ever queued; and
+  subsequent scan bounced off it and nothing was ever queued (since 069 the two
+  IDs form a group that shares the next location); and
 * a scan with no trailing newline (FR-017, FR-021). Every other scan in this
   suite is `.type()` then `.press("Enter")`, and Enter cancels the 100 ms
   fallback timer, so the fallback path has never run under test.
@@ -86,24 +87,24 @@ def test_a_ja_id_while_a_location_is_expected_resolves_the_machine(page, live_se
     """data-model.md section 5's invariant: no input may leave the machine in a
     state from which no valid input makes progress.
 
-    A JA ID arriving here unambiguously means the previous item's location was
-    missed. The old code warned and left `currentExpectedInput` at `location`,
-    so every subsequent JA-ID scan bounced off it, nothing was ever queued, and
-    >>DONE<< then reported an empty queue -- which is exactly the report.
+    The old code warned and left `currentExpectedInput` at `location`, so every
+    subsequent JA-ID scan bounced off it, nothing was ever queued, and >>DONE<<
+    then reported an empty queue -- which is exactly the report. 026 fixed that
+    by abandoning the first item; 069 (#223) instead groups the two, so both go
+    to the next location scanned and nothing is dropped.
     """
     _seed(live_server, PAIRS[:3])
     page.goto(f"{live_server.url}/inventory/move")
     expect(page.locator("#barcode-input")).to_be_focused()
 
     scan_on_move_page(page, "JA200001")
-    # The location for JA200001 is missed; the next scan is the next item.
+    # No location for JA200001; the next scan is the next item.
     scan_on_move_page(page, "JA200002")
 
-    # The machine has moved on to the new item rather than bouncing, and the
-    # abandoned one is named rather than lost silently.
-    assert page.evaluate("() => window.moveManager.currentId") == "JA200002"
-    assert page.evaluate("() => window.moveManager.currentExpectedInput") == "location"
-    expect(page.locator("#form-alerts .alert").last).to_contain_text("JA200001")
+    # The machine has moved on, and both items are visibly waiting.
+    assert page.evaluate("() => window.moveManager.currentExpectedInput") == "group_location"
+    expect(page.locator("#scan-group")).to_be_visible()
+    expect(page.locator("#scan-group-rows tr")).to_have_count(2)
 
     # And the session continues normally from there.
     scan_on_move_page(page, "M2-A")
@@ -111,12 +112,12 @@ def test_a_ja_id_while_a_location_is_expected_resolves_the_machine(page, live_se
     scan_on_move_page(page, "M3-A")
     scan_on_move_page(page, ">>DONE<<")
 
-    expect(page.locator("#queue-count")).to_have_text("2 items")
+    expect(page.locator("#queue-count")).to_have_text("3 items")
     expect(page.locator("#validate-btn")).to_be_enabled()
     rows = page.locator("#queue-items tr")
+    expect(rows.filter(has_text="JA200001")).to_contain_text("M2-A")
     expect(rows.filter(has_text="JA200002")).to_contain_text("M2-A")
     expect(rows.filter(has_text="JA200003")).to_contain_text("M3-A")
-    expect(rows.filter(has_text="JA200001")).to_have_count(0)
 
 
 @pytest.mark.e2e
