@@ -38,7 +38,7 @@ Tests are required by the constitution (Principle IV: behaviour changes land wit
 
 - [X] T014 [P] Document scanning several IDs before one location in docs/user-manual.md (Move Items and Move Products workflow)
 - [X] T015 Run `nox -s tests` and `nox -s e2e` (detached) and fix failures
-- [ ] T016 Regenerate screenshots, commit only those whose content changed, run `nox -s screenshots_verify`
+- [X] T016 Regenerate screenshots, commit only those whose content changed, run `nox -s screenshots_verify`
 
 ## Dependencies
 
