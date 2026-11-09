@@ -20,6 +20,7 @@ A ⚠️☠️🚨 **vibe-coded**, authored by Claude, and minimally reviewed �
 - **Advanced Search & Filtering**: Range queries, compound filters, CSV export, and URL bookmarking
 - **Item History API**: RESTful endpoints for accessing complete item modification history
 - **REST API for Item Creation and Autocomplete**: JSON endpoints for creating items, querying autocomplete suggestions for free-form fields (thread size, purchase location, vendor, location, sub-location), and retrieving the hierarchical materials taxonomy, plus a standalone Python client (`app/api_client.py`) with only `requests` as a dependency
+- **MCP Server for AI Assistants**: Claude Code and Claude Desktop can search, add, edit, shorten and move items, manage products, counts and flags, and print labels through an MCP endpoint at `/mcp`, with the same validation as the web UI. See [MCP Server](docs/user-manual.md#mcp-server)
 - **Thread System Management**: Standardized thread formats with semantic validation
 - **Professional UI/UX**: Bootstrap 5.3.2 responsive interface with 15+ keyboard shortcuts
 - **Performance Optimization**: Caching, batch operations, and monitoring capabilities
