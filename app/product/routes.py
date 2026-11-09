@@ -12,7 +12,7 @@ import json
 import logging
 import re
 from decimal import Decimal
-from typing import List, Optional
+from typing import Any, List, Optional
 from urllib.parse import unquote, urlparse
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, url_for
@@ -2577,18 +2577,16 @@ def api_product_by_code(code):
     return jsonify({'success': True, 'product': product.to_dict()})
 
 
-@bp.route('/api/products/batch-move', methods=['POST'])
-def api_batch_move_products():
-    """Execute the product Move page's queue (057).
+def _move_products(moves: list) -> dict:
+    """Move each product in ``moves``, keyed by ``code``.
 
-    Same request and response as ``/api/inventory/batch-move``, with each move
-    keyed by ``code``. One failed move never stops the rest.
+    The body of ``POST /api/products/batch-move`` after its request is parsed,
+    shared with the MCP ``move_products`` tool. One failed move never stops the
+    rest.
+
+    Returns:
+        The ``batch_result`` response body.
     """
-    try:
-        moves = parse_moves(request.get_json(silent=True))
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
-
     service = _get_catalog_service()
     moved_count = 0
     failed = []
@@ -2607,7 +2605,22 @@ def api_batch_move_products():
         except ValidationError as e:
             failed.append({'code': code, 'error': e.message})
 
-    return jsonify(batch_result(moved_count, len(moves), failed))
+    return batch_result(moved_count, len(moves), failed)
+
+
+@bp.route('/api/products/batch-move', methods=['POST'])
+def api_batch_move_products():
+    """Execute the product Move page's queue (057).
+
+    Same request and response as ``/api/inventory/batch-move``, with each move
+    keyed by ``code``. One failed move never stops the rest.
+    """
+    try:
+        moves = parse_moves(request.get_json(silent=True))
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+    return jsonify(_move_products(moves))
 
 
 @bp.route('/api/products/category', methods=['POST'])
@@ -2931,46 +2944,45 @@ def api_set_stock_status(product_id):
     return jsonify({'success': True, 'product': product.to_dict()})
 
 
-@bp.route('/api/products/<int:product_id>/label', methods=['POST'])
-def api_print_product_label(product_id):
-    """Compose and print a product label (FR-011, FR-013).
+class LabelPrintError(RuntimeError):
+    """The printer failed on a product label that passed validation."""
 
-    Composes from the stored record every time -- there is no cached image, so a
-    reprint after an edited description reflects the edit. What "no re-entry"
-    means is that the operator types nothing, which holds unconditionally.
+
+def _print_product_label(
+    service: CatalogService, product: Product, label_type: Any, label_count: Any = 1
+) -> dict:
+    """Validate a product label request, compose the label and print it.
+
+    Shared by ``POST /api/products/<id>/label`` and the MCP
+    ``print_product_labels`` tool.
+
+    Returns:
+        The success body of the label endpoint.
+
+    Raises:
+        ValueError: when the request is invalid; the message is the 400's.
+        LabelPrintError: when printing fails (already logged).
     """
     from app.services.label_printer import LABEL_TYPES, get_available_label_types
     from app.services.product_label import format_provenance, print_product_label
 
-    service = _get_catalog_service()
-    product = _product_or_404(service, product_id)
-
-    data = request.get_json(silent=True) or {}
-    label_type = str(data.get('label_type', '')).strip()
+    label_type = str(label_type).strip()
 
     if label_type not in LABEL_TYPES:
-        return jsonify({
-            'success': False,
-            'error': f'Invalid label type. Available types: {get_available_label_types()}'
-        }), 400
+        raise ValueError(f'Invalid label type. Available types: {get_available_label_types()}')
 
     # Same rules and the same wording as the item label endpoint in
     # app/main/routes.py, deliberately restated rather than shared: extracting
     # eight lines would mean editing a second blueprint that has nothing else to
     # do with this. Absent means 1, which is what lets a caller that sends no
     # count keep working unchanged.
-    label_count = data.get('label_count', 1)
     # bool is a subclass of int, so True would otherwise pass as 1.
     if isinstance(label_count, bool) or not isinstance(label_count, int):
-        return jsonify({
-            'success': False,
-            'error': 'label_count must be a whole number'
-        }), 400
+        raise ValueError('label_count must be a whole number')
     if label_count < 1 or label_count > 99:
-        return jsonify({
-            'success': False,
-            'error': 'label_count must be between 1 and 99'
-        }), 400
+        raise ValueError('label_count must be between 1 and 99')
+
+    product_id = product.id
 
     # Not history[-1]: undated purchases sort last but are not the most recent.
     # Manufacturer and part number come off the product, not the purchase: they
@@ -2992,7 +3004,7 @@ def api_print_product_label(product_id):
         )
     except Exception as e:
         current_app.logger.error(f'Error printing product label for {product_id}: {e}')
-        return jsonify({'success': False, 'error': 'Failed to print label'}), 500
+        raise LabelPrintError(str(e)) from e
 
     current_app.logger.info(
         f'Printed {label_count} {label_type} label(s) for product {product_id} '
@@ -3004,14 +3016,37 @@ def api_print_product_label(product_id):
     else:
         message = f'{label_count} labels printed for {product.description}'
 
-    return jsonify({
+    return {
         'success': True,
         'message': message,
         'product_id': product_id,
         'code': product.internal_code,
         'label_type': label_type,
         'label_count': label_count,
-    })
+    }
+
+
+@bp.route('/api/products/<int:product_id>/label', methods=['POST'])
+def api_print_product_label(product_id):
+    """Compose and print a product label (FR-011, FR-013).
+
+    Composes from the stored record every time -- there is no cached image, so a
+    reprint after an edited description reflects the edit. What "no re-entry"
+    means is that the operator types nothing, which holds unconditionally.
+    """
+    service = _get_catalog_service()
+    product = _product_or_404(service, product_id)
+
+    data = request.get_json(silent=True) or {}
+
+    try:
+        return jsonify(_print_product_label(
+            service, product, data.get('label_type', ''), data.get('label_count', 1)
+        ))
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except LabelPrintError:
+        return jsonify({'success': False, 'error': 'Failed to print label'}), 500
 
 
 @bp.route('/api/products/<int:product_id>/attachments', methods=['POST'])

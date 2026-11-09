@@ -5,7 +5,7 @@ from app.main import bp
 from app import csrf, __version__
 from app.mariadb_storage import MariaDBStorage
 # Using unified InventoryService (MariaDB-based implementation)
-from app.mariadb_inventory_service import InventoryService
+from app.mariadb_inventory_service import InventoryService, SearchFilter
 # Performance optimizations removed - no longer needed with MariaDB
 from app.taxonomy import type_shape_validator
 from app.models import ItemType, ItemShape, Dimensions, Thread, ThreadSeries, ThreadHandedness
@@ -686,7 +686,69 @@ def inventory_edit(ja_id):
         
         # Handle POST request for updating item
         form_data = request.form.to_dict()
-        
+        outcome = _edit_item_from_form(ja_id, item, form_data)
+        status = outcome['status']
+
+        if status == 'ok':
+            flash('Item updated successfully!', 'success')
+            return redirect(url_for('main.inventory_list'))
+
+        flash(outcome['message'], 'error')
+
+        if status == 'invalid_material':
+            # Create a temporary item with the submitted form data to preserve user input
+            temp_item = _parse_item_from_form(form_data)
+            temp_item.date_added = item.date_added  # Preserve original dates
+
+            # Re-render the form with validation errors and user input
+            valid_materials = _get_valid_materials()
+            return render_template('inventory/edit.html', title=f'Edit {ja_id}',
+                                 item=temp_item, ItemType=ItemType, ItemShape=ItemShape,
+                                 ThreadSeries=ThreadSeries, valid_materials=valid_materials,
+                                 validation_errors={'material': outcome['message']},
+                                 type_shape_requirements=type_shape_validator.requirements_by_name())
+
+        if status == 'error':
+            return redirect(url_for('main.inventory_list'))
+        return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+
+    except ValueError as e:
+        # AUDIT: Log validation exception
+        log_audit_operation('edit_item', 'error', 
+                          item_id=ja_id, 
+                          error_details=f'Validation error: {str(e)}')
+        current_app.logger.error(f'Validation error updating item {ja_id}: {e}')
+        flash(f'Validation error: {str(e)}', 'error')
+        return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+    except Exception as e:
+        # AUDIT: Log general exception
+        log_audit_operation('edit_item', 'error', 
+                          item_id=ja_id, 
+                          error_details=f'Exception: {str(e)}')
+        current_app.logger.error(f'Error updating item {ja_id}: {e}\n{traceback.format_exc()}')
+        flash('An error occurred while updating the item. Please try again.', 'error')
+        return redirect(url_for('main.inventory_list'))
+
+
+def _edit_item_from_form(ja_id: str, item: InventoryItem, form_data: dict) -> dict[str, Any]:
+    """Validate an edit submission and write it, with its audit trail.
+
+    The body of the Edit Item page's POST, shared with the MCP ``edit_item``
+    tool so both apply the same rules and leave the same audit entries.
+
+    Args:
+        ja_id: the JA ID the edit was addressed to (the URL's, on the web).
+        item: that item's canonical row as it stood before the edit.
+        form_data: the edit form's fields, as ``request.form.to_dict()``.
+
+    Returns:
+        ``{'status', 'message', 'item'}``. ``status`` is ``'ok'`` (``item`` is
+        the row as persisted), ``'invalid'`` (missing fields or dimensions),
+        ``'invalid_material'``, ``'failed'`` (the service refused the write),
+        ``'value_error'`` or ``'error'`` (an exception). ``message`` is what
+        the Edit page flashes.
+    """
+    try:
         # AUDIT: Log input phase with original item and form data
         log_audit_operation('edit_item', 'input', 
                           item_id=ja_id, 
@@ -703,8 +765,7 @@ def inventory_edit(ja_id):
             log_audit_operation('edit_item', 'error',
                               item_id=ja_id,
                               error_details=error_msg)
-            flash(error_msg, 'error')
-            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+            return {'status': 'invalid', 'message': error_msg, 'item': None}
 
         # The same rule the Add paths apply, so an item one path accepts every
         # path accepts (FR-006, FR-017).
@@ -713,8 +774,7 @@ def inventory_edit(ja_id):
             log_audit_operation('edit_item', 'error',
                               item_id=ja_id,
                               error_details=missing_dimensions)
-            flash(missing_dimensions, 'error')
-            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+            return {'status': 'invalid', 'message': missing_dimensions, 'item': None}
 
 
         # Validate material is in taxonomy
@@ -729,19 +789,10 @@ def inventory_edit(ja_id):
             log_audit_operation('edit_item', 'error',
                               item_id=ja_id,
                               error_details=error_msg)
-            flash(error_msg, 'error')
-
-            # Create a temporary item with the submitted form data to preserve user input
-            temp_item = _parse_item_from_form(form_data)
-            temp_item.date_added = item.date_added  # Preserve original dates
-
-            # Re-render the form with validation errors and user input
-            return render_template('inventory/edit.html', title=f'Edit {ja_id}',
-                                 item=temp_item, ItemType=ItemType, ItemShape=ItemShape,
-                                 ThreadSeries=ThreadSeries, valid_materials=valid_materials,
-                                 validation_errors={'material': error_msg},
-                                 type_shape_requirements=type_shape_validator.requirements_by_name())
+            return {'status': 'invalid_material', 'message': error_msg, 'item': None}
         
+        service = _get_inventory_service()
+
         # Parse form data into updated item
         updated_item = _parse_item_from_form(form_data)
         
@@ -781,15 +832,15 @@ def inventory_edit(ja_id):
                               item_before=_item_to_audit_dict(item),
                               item_after=_item_to_audit_dict(persisted_item),
                               changes=changes)
-            flash('Item updated successfully!', 'success')
-            return redirect(url_for('main.inventory_list'))
+            return {'status': 'ok', 'message': 'Item updated successfully!',
+                    'item': persisted_item, 'changes': changes}
         else:
             # AUDIT: Log failed edit operation
             log_audit_operation('edit_item', 'error', 
                               item_id=ja_id, 
                               error_details='Service update_item returned False')
-            flash('Failed to update item. Please try again.', 'error')
-            return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+            return {'status': 'failed', 'message': 'Failed to update item. Please try again.',
+                    'item': None}
             
     except ValueError as e:
         # AUDIT: Log validation exception
@@ -797,16 +848,52 @@ def inventory_edit(ja_id):
                           item_id=ja_id, 
                           error_details=f'Validation error: {str(e)}')
         current_app.logger.error(f'Validation error updating item {ja_id}: {e}')
-        flash(f'Validation error: {str(e)}', 'error')
-        return redirect(url_for('main.inventory_edit', ja_id=ja_id))
+        return {'status': 'value_error', 'message': f'Validation error: {str(e)}', 'item': None}
     except Exception as e:
         # AUDIT: Log general exception
         log_audit_operation('edit_item', 'error', 
                           item_id=ja_id, 
                           error_details=f'Exception: {str(e)}')
         current_app.logger.error(f'Error updating item {ja_id}: {e}\n{traceback.format_exc()}')
-        flash('An error occurred while updating the item. Please try again.', 'error')
-        return redirect(url_for('main.inventory_list'))
+        return {'status': 'error',
+                'message': 'An error occurred while updating the item. Please try again.',
+                'item': None, 'detail': str(e)}
+
+
+def _item_to_form_data(item: InventoryItem) -> dict[str, str]:
+    """The Edit Item form's fields as they would be posted for ``item`` unchanged.
+
+    What the edit page pre-fills, in the shape ``_edit_item_from_form`` takes,
+    so a caller that changes only some fields can overlay them on this.
+    Dimensions are the stored exact decimals; checkboxes are ``'on'`` when set
+    and absent when not, as a browser posts them.
+    """
+    dimensions = item.dimensions
+    form_data = {
+        'ja_id': item.ja_id,
+        'item_type': item.item_type or '',
+        'shape': item.shape or '',
+        'material': item.material or '',
+        'location': item.location or '',
+        'sub_location': item.sub_location or '',
+        'purchase_date': item.purchase_date.strftime('%Y-%m-%d') if item.purchase_date else '',
+        'purchase_price': str(item.purchase_price) if item.purchase_price is not None else '',
+        'purchase_location': item.purchase_location or '',
+        'vendor': item.vendor or '',
+        'vendor_part_number': item.vendor_part or '',
+        'notes': item.notes or '',
+        'thread_series': item.thread_series or '',
+        'thread_handedness': item.thread_handedness or '',
+        'thread_size': item.thread_size or '',
+    }
+    for field in ('length', 'width', 'thickness', 'wall_thickness', 'weight'):
+        value = getattr(dimensions, field)
+        form_data[field] = str(value) if value is not None else ''
+    if item.active:
+        form_data['active'] = 'on'
+    if item.precision:
+        form_data['precision'] = 'on'
+    return form_data
 
 @bp.route('/api/items/<ja_id>/duplicate', methods=['POST'])
 @csrf.exempt
@@ -1059,10 +1146,29 @@ def handle_shorten_post(form: MultiDict, return_endpoint: str) -> Response:
     :param form: the submitted form (``request.form``)
     :param return_endpoint: the endpoint to redirect to afterwards
     """
+    outcome = _shorten_from_form(form.to_dict())
+    flash(outcome['message'], 'success' if outcome['success'] else 'error')
+    return redirect(url_for(return_endpoint))
+
+
+def _shorten_from_form(form_data: dict) -> dict[str, Any]:
+    """Validate a shorten submission, shorten the item, and audit it.
+
+    Everything ``handle_shorten_post`` does short of flashing and
+    redirecting, shared with the MCP ``shorten_item`` tool so every path
+    performs the same validation, audit log entries and shortening operation.
+
+    Args:
+        form_data: the Shorten form's fields (``source_ja_id``,
+            ``new_length``, ``confirm_operation``, optional ``cut_date`` and
+            ``shortening_notes``).
+
+    Returns:
+        ``{'success', 'message', 'error', 'result'}``: ``message`` is what the
+        Shorten page flashes, ``error`` the failure's own text (None on
+        success), and ``result`` the shortening operation's result when it ran.
+    """
     try:
-        # Get form data
-        form_data = form.to_dict()
-        
         # AUDIT: Log shorten operation input
         log_audit_operation('shorten_item', 'input',
                           item_id=form_data.get('source_ja_id'),
@@ -1078,8 +1184,7 @@ def handle_shorten_post(form: MultiDict, return_endpoint: str) -> Response:
             log_audit_operation('shorten_item', 'error',
                               item_id=form_data.get('source_ja_id'),
                               error_details=error_msg)
-            flash(error_msg, 'error')
-            return redirect(url_for(return_endpoint))
+            return {'success': False, 'message': error_msg, 'error': error_msg, 'result': None}
         
         if form_data.get('confirm_operation') != 'on':
             error_msg = 'You must confirm the shortening operation'
@@ -1087,8 +1192,7 @@ def handle_shorten_post(form: MultiDict, return_endpoint: str) -> Response:
             log_audit_operation('shorten_item', 'error',
                               item_id=form_data.get('source_ja_id'),
                               error_details=error_msg)
-            flash(error_msg, 'error')
-            return redirect(url_for(return_endpoint))
+            return {'success': False, 'message': error_msg, 'error': error_msg, 'result': None}
         
         # Execute shortening operation
         result = _execute_shortening_operation(form_data)
@@ -1110,26 +1214,27 @@ def handle_shorten_post(form: MultiDict, return_endpoint: str) -> Response:
                               changes=changes)
             
             if original_length and new_length:
-                flash(f"Item {ja_id} successfully shortened from {original_length}\" to {new_length}\"! History preserved.", 'success')
+                message = f"Item {ja_id} successfully shortened from {original_length}\" to {new_length}\"! History preserved."
             else:
-                flash(f"Item {ja_id} successfully shortened! History preserved.", 'success')
-            return redirect(url_for(return_endpoint))
+                message = f"Item {ja_id} successfully shortened! History preserved."
+            return {'success': True, 'message': message, 'error': None, 'result': result}
         else:
             # AUDIT: Log failed shortening operation
             log_audit_operation('shorten_item', 'error',
                               item_id=form_data.get('source_ja_id'),
                               error_details=f"Shortening operation failed: {result['error']}")
-            flash(f"Shortening failed: {result['error']}", 'error')
-            return redirect(url_for(return_endpoint))
+            return {'success': False, 'message': f"Shortening failed: {result['error']}",
+                    'error': result['error'], 'result': result}
             
     except Exception as e:
         # AUDIT: Log shortening operation exception
         log_audit_operation('shorten_item', 'error',
-                          item_id=form_data.get('source_ja_id') if 'form_data' in locals() else None,
+                          item_id=form_data.get('source_ja_id'),
                           error_details=f'Exception during shortening: {str(e)}')
         current_app.logger.error(f'Error in shortening operation: {e}\n{traceback.format_exc()}')
-        flash('An error occurred during the shortening operation. Please try again.', 'error')
-        return redirect(url_for(return_endpoint))
+        return {'success': False,
+                'message': 'An error occurred during the shortening operation. Please try again.',
+                'error': str(e), 'result': None}
 
 # API Routes
 
@@ -1573,6 +1678,134 @@ def get_item_history(ja_id):
             'error': 'Failed to get item history'
         }), 500
 
+def _move_items(moves: list) -> dict[str, Any]:
+    """Move each item in ``moves``, auditing every move and the batch.
+
+    The body of ``POST /api/inventory/batch-move`` after its request is
+    parsed, shared with the MCP ``move_items`` tool. Each move is
+    ``{'ja_id', 'new_location', 'new_sub_location'}``; one failed move never
+    stops the rest.
+
+    Returns:
+        The ``batch_result`` response body.
+    """
+    # AUDIT: Log batch move input phase
+    log_audit_batch_operation('batch_move_items', 'input', 
+                            batch_data={
+                                'move_count': len(moves),
+                                'moves': moves
+                            })
+    
+    service = _get_inventory_service()
+    
+    successful_moves = 0
+    failed_moves = []
+    
+    for move in moves:
+        ja_id = move.get('ja_id')
+        new_location = move.get('new_location')
+        new_sub_location = move.get('new_sub_location')
+
+        if not ja_id or not new_location:
+            failed_moves.append({
+                'ja_id': ja_id,
+                'error': 'Missing JA ID or location'
+            })
+            continue
+
+        try:
+            # Get the current item
+            item = service.get_item(ja_id)
+            if not item:
+                failed_moves.append({
+                    'ja_id': ja_id,
+                    'error': 'Item not found'
+                })
+                continue
+
+            # Store old values for audit logging
+            old_location = item.location
+            old_sub_location = item.sub_location
+
+            # Moving always replaces the sub-location; one not given clears it.
+            item.location, item.sub_location = destination(new_location, new_sub_location)
+
+            # AUDIT: Log individual move operation input
+            log_audit_operation('move_item', 'input',
+                              item_id=ja_id,
+                              form_data={
+                                  'ja_id': ja_id,
+                                  'new_location': new_location,
+                                  'new_sub_location': new_sub_location,
+                                  'old_location': old_location,
+                                  'old_sub_location': old_sub_location
+                              },
+                              item_before=_item_to_audit_dict(item))
+
+            # Save the updated item
+            if service.update_item(item):
+                successful_moves += 1
+                # AUDIT: Log successful individual move with location and sub-location changes
+                changes = {
+                    'location': {'before': old_location, 'after': new_location}
+                }
+                # Only log sub_location change if it actually changed
+                if old_sub_location != item.sub_location:
+                    changes['sub_location'] = {'before': old_sub_location, 'after': item.sub_location}
+
+                log_audit_operation('move_item', 'success',
+                                  item_id=ja_id,
+                                  changes=changes)
+
+                # Build log message
+                log_msg = f'Moved {ja_id} from "{old_location}" to "{new_location}"'
+                if old_sub_location != item.sub_location:
+                    log_msg += f' (sub-location: "{old_sub_location}" -> "{item.sub_location}")'
+                current_app.logger.info(log_msg)
+            else:
+                # AUDIT: Log failed individual move
+                log_audit_operation('move_item', 'error',
+                                  item_id=ja_id,
+                                  error_details='Service update_item returned False')
+                failed_moves.append({
+                    'ja_id': ja_id,
+                    'error': 'Failed to update item'
+                })
+                
+        except Exception as e:
+            # AUDIT: Log individual move exception
+            import traceback
+            tb_str = traceback.format_exc()
+            exc_info = traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
+            if exc_info:
+                error_details = f'Exception during move: {type(e).__name__}: {str(e)} at {exc_info.filename}:{exc_info.lineno} in {exc_info.name}(). Traceback: {tb_str}'
+            else:
+                error_details = f'Exception during move: {type(e).__name__}: {str(e)}. Traceback: {tb_str}'
+            log_audit_operation('move_item', 'error',
+                              item_id=ja_id,
+                              error_details=error_details)
+            current_app.logger.error(f'Error moving item {ja_id}: {error_details}')
+            failed_moves.append({
+                'ja_id': ja_id,
+                'error': str(e)
+            })
+    
+    response_data = batch_result(successful_moves, len(moves), failed_moves)
+
+    # AUDIT: Log batch move completion with results
+    batch_results = {
+        'successful_count': successful_moves,
+        'failed_count': len(failed_moves),
+        'total_count': len(moves),
+        'failed_items': [fm['ja_id'] for fm in failed_moves],
+        'overall_success': len(failed_moves) == 0
+    }
+    log_audit_batch_operation('batch_move_items', 'success', 
+                            results=batch_results)
+
+    return response_data
+
+
 @bp.route('/api/inventory/batch-move', methods=['POST'])
 @csrf.exempt
 def batch_move_items():
@@ -1590,121 +1823,7 @@ def batch_move_items():
                 'error': error_msg
             }), 400
         
-        # AUDIT: Log batch move input phase
-        log_audit_batch_operation('batch_move_items', 'input', 
-                                batch_data={
-                                    'move_count': len(moves),
-                                    'moves': moves
-                                })
-        
-        service = _get_inventory_service()
-        
-        successful_moves = 0
-        failed_moves = []
-        
-        for move in moves:
-            ja_id = move.get('ja_id')
-            new_location = move.get('new_location')
-            new_sub_location = move.get('new_sub_location')
-
-            if not ja_id or not new_location:
-                failed_moves.append({
-                    'ja_id': ja_id,
-                    'error': 'Missing JA ID or location'
-                })
-                continue
-
-            try:
-                # Get the current item
-                item = service.get_item(ja_id)
-                if not item:
-                    failed_moves.append({
-                        'ja_id': ja_id,
-                        'error': 'Item not found'
-                    })
-                    continue
-
-                # Store old values for audit logging
-                old_location = item.location
-                old_sub_location = item.sub_location
-
-                # Moving always replaces the sub-location; one not given clears it.
-                item.location, item.sub_location = destination(new_location, new_sub_location)
-
-                # AUDIT: Log individual move operation input
-                log_audit_operation('move_item', 'input',
-                                  item_id=ja_id,
-                                  form_data={
-                                      'ja_id': ja_id,
-                                      'new_location': new_location,
-                                      'new_sub_location': new_sub_location,
-                                      'old_location': old_location,
-                                      'old_sub_location': old_sub_location
-                                  },
-                                  item_before=_item_to_audit_dict(item))
-
-                # Save the updated item
-                if service.update_item(item):
-                    successful_moves += 1
-                    # AUDIT: Log successful individual move with location and sub-location changes
-                    changes = {
-                        'location': {'before': old_location, 'after': new_location}
-                    }
-                    # Only log sub_location change if it actually changed
-                    if old_sub_location != item.sub_location:
-                        changes['sub_location'] = {'before': old_sub_location, 'after': item.sub_location}
-
-                    log_audit_operation('move_item', 'success',
-                                      item_id=ja_id,
-                                      changes=changes)
-
-                    # Build log message
-                    log_msg = f'Moved {ja_id} from "{old_location}" to "{new_location}"'
-                    if old_sub_location != item.sub_location:
-                        log_msg += f' (sub-location: "{old_sub_location}" -> "{item.sub_location}")'
-                    current_app.logger.info(log_msg)
-                else:
-                    # AUDIT: Log failed individual move
-                    log_audit_operation('move_item', 'error',
-                                      item_id=ja_id,
-                                      error_details='Service update_item returned False')
-                    failed_moves.append({
-                        'ja_id': ja_id,
-                        'error': 'Failed to update item'
-                    })
-                    
-            except Exception as e:
-                # AUDIT: Log individual move exception
-                import traceback
-                tb_str = traceback.format_exc()
-                exc_info = traceback.extract_tb(e.__traceback__)[-1] if e.__traceback__ else None
-                if exc_info:
-                    error_details = f'Exception during move: {type(e).__name__}: {str(e)} at {exc_info.filename}:{exc_info.lineno} in {exc_info.name}(). Traceback: {tb_str}'
-                else:
-                    error_details = f'Exception during move: {type(e).__name__}: {str(e)}. Traceback: {tb_str}'
-                log_audit_operation('move_item', 'error',
-                                  item_id=ja_id,
-                                  error_details=error_details)
-                current_app.logger.error(f'Error moving item {ja_id}: {error_details}')
-                failed_moves.append({
-                    'ja_id': ja_id,
-                    'error': str(e)
-                })
-        
-        response_data = batch_result(successful_moves, len(moves), failed_moves)
-
-        # AUDIT: Log batch move completion with results
-        batch_results = {
-            'successful_count': successful_moves,
-            'failed_count': len(failed_moves),
-            'total_count': len(moves),
-            'failed_items': [fm['ja_id'] for fm in failed_moves],
-            'overall_success': len(failed_moves) == 0
-        }
-        log_audit_batch_operation('batch_move_items', 'success', 
-                                results=batch_results)
-        
-        return jsonify(response_data)
+        return jsonify(_move_items(moves))
         
     except Exception as e:
         # AUDIT: Log batch move exception
@@ -1715,7 +1834,6 @@ def batch_move_items():
             error_details = f'Exception during move: {type(e).__name__}: {str(e)} at {exc_info.filename}:{exc_info.lineno} in {exc_info.name}(). Traceback: {tb_str}'
         else:
             error_details = f'Exception during move: {type(e).__name__}: {str(e)}. Traceback: {tb_str}'
-        current_app.logger.error(f'Error moving item {ja_id}: {error_details}')
         log_audit_batch_operation('batch_move_items', 'error',
                                 error_details=f'Batch move exception: {error_details}')
         current_app.logger.error(f'Batch move error: {error_details}\n{traceback.format_exc()}')
@@ -1781,78 +1899,75 @@ def thread_series_lookup():
             'error': 'Failed to lookup thread series'
         }), 500
 
+def _print_item_label(ja_id: str, label_type: str, label_count: Any = 1) -> dict[str, Any]:
+    """Validate a label request for a JA ID and print it.
+
+    Shared by ``POST /api/labels/print`` and the MCP ``print_item_labels``
+    tool.
+
+    Returns:
+        The success body of ``POST /api/labels/print``.
+
+    Raises:
+        ValueError: when the request is invalid; the message is the 400's.
+        Exception: whatever the printer raises.
+    """
+    from app.services.label_printer import print_label_for_ja_id, get_available_label_types
+
+    if not ja_id:
+        raise ValueError('ja_id is required')
+
+    if not label_type:
+        raise ValueError('label_type is required')
+
+    # Validate JA ID format
+    if not (ja_id.startswith('JA') and len(ja_id) == 8 and ja_id[2:].isdigit()):
+        raise ValueError('Invalid JA ID format. Expected format: JA######')
+
+    # Validate label type
+    available_types = get_available_label_types()
+    if label_type not in available_types:
+        raise ValueError(f'Invalid label type. Available types: {available_types}')
+
+    # Validate label count. Absent means 1, which is what lets callers that
+    # do not send a count keep working unchanged.
+    # bool is a subclass of int, so True would otherwise pass as 1.
+    if isinstance(label_count, bool) or not isinstance(label_count, int):
+        raise ValueError('label_count must be a whole number')
+    if label_count < 1 or label_count > 99:
+        raise ValueError('label_count must be between 1 and 99')
+
+    # Print the label
+    print_label_for_ja_id(ja_id, label_type, label_count)
+
+    current_app.logger.info(
+        f'Successfully printed {label_count} {label_type} label(s) for {ja_id}'
+    )
+
+    if label_count == 1:
+        message = f'Label printed successfully for {ja_id}'
+    else:
+        message = f'{label_count} labels printed successfully for {ja_id}'
+
+    return {
+        'success': True,
+        'message': message,
+        'ja_id': ja_id,
+        'label_type': label_type,
+        'label_count': label_count
+    }
+
+
 @bp.route('/api/labels/print', methods=['POST'])
 @csrf.exempt
 def print_label():
     """Print a barcode label for a JA ID"""
     try:
-        from app.services.label_printer import print_label_for_ja_id, get_available_label_types
-        
         data = request.get_json() or {}
         ja_id = data.get('ja_id', '').strip()
         label_type = data.get('label_type', '').strip()
-        
-        if not ja_id:
-            return jsonify({
-                'success': False,
-                'error': 'ja_id is required'
-            }), 400
-            
-        if not label_type:
-            return jsonify({
-                'success': False,
-                'error': 'label_type is required'
-            }), 400
-        
-        # Validate JA ID format
-        if not (ja_id.startswith('JA') and len(ja_id) == 8 and ja_id[2:].isdigit()):
-            return jsonify({
-                'success': False,
-                'error': 'Invalid JA ID format. Expected format: JA######'
-            }), 400
-        
-        # Validate label type
-        available_types = get_available_label_types()
-        if label_type not in available_types:
-            return jsonify({
-                'success': False,
-                'error': f'Invalid label type. Available types: {available_types}'
-            }), 400
 
-        # Validate label count. Absent means 1, which is what lets callers that
-        # do not send a count keep working unchanged.
-        label_count = data.get('label_count', 1)
-        # bool is a subclass of int, so True would otherwise pass as 1.
-        if isinstance(label_count, bool) or not isinstance(label_count, int):
-            return jsonify({
-                'success': False,
-                'error': 'label_count must be a whole number'
-            }), 400
-        if label_count < 1 or label_count > 99:
-            return jsonify({
-                'success': False,
-                'error': 'label_count must be between 1 and 99'
-            }), 400
-
-        # Print the label
-        print_label_for_ja_id(ja_id, label_type, label_count)
-
-        current_app.logger.info(
-            f'Successfully printed {label_count} {label_type} label(s) for {ja_id}'
-        )
-
-        if label_count == 1:
-            message = f'Label printed successfully for {ja_id}'
-        else:
-            message = f'{label_count} labels printed successfully for {ja_id}'
-
-        return jsonify({
-            'success': True,
-            'message': message,
-            'ja_id': ja_id,
-            'label_type': label_type,
-            'label_count': label_count
-        })
+        return jsonify(_print_item_label(ja_id, label_type, data.get('label_count', 1)))
 
     except ValueError as e:
         current_app.logger.warning(f'Validation error printing label: {e}')
@@ -2019,6 +2134,102 @@ def api_toggle_item_status(ja_id):
             'message': 'Internal server error'
         }), 500
 
+class SearchFilterError(ValueError):
+    """A search request the filter cannot be built from; the message is the 400's."""
+
+
+def _build_search_filter(service: InventoryService, data: dict) -> SearchFilter:
+    """Build the SearchFilter an advanced search request describes.
+
+    Shared by ``POST /api/inventory/search`` and the MCP ``search_items`` tool,
+    so both apply the same filters to the same keys.
+
+    Raises:
+        SearchFilterError: for the requests the search endpoint answers with a
+            400; the message is the one that response carries.
+    """
+    # Build search filter from request data
+    search_filter = SearchFilter()
+
+    # Basic identification filters
+    if data.get('ja_id'):
+        search_filter.add_exact_match('ja_id', data['ja_id'].upper())
+
+    if data.get('location'):
+        search_filter.add_text_search('location', data['location'])
+
+    if data.get('notes'):
+        search_filter.add_text_search('notes', data['notes'])
+
+    # Type and shape filters
+    if data.get('item_type'):
+        try:
+            item_type = ItemType(data['item_type'])
+            search_filter.add_exact_match('item_type', item_type)
+        except KeyError:
+            raise SearchFilterError(f'Invalid item type: {data["item_type"]}')
+
+    if data.get('shape'):
+        try:
+            shape = ItemShape(data['shape'])
+            search_filter.add_exact_match('shape', shape)
+        except KeyError:
+            raise SearchFilterError(f'Invalid shape: {data["shape"]}')
+
+    # Active/inactive filter
+    if 'active' in data:
+        if data['active'] == '':
+            # Empty string means show all items - add empty string to filters
+            search_filter.add_exact_match('active', '')
+        elif data['active'] is not None:
+            if isinstance(data['active'], bool):
+                search_filter.add_exact_match('active', data['active'])
+            elif isinstance(data['active'], str):
+                search_filter.add_exact_match('active', data['active'].lower() == 'true')
+    # If active is not present at all, search_active_items will default to active items only
+
+    # Precision filter
+    if 'precision' in data and data['precision'] is not None:
+        if isinstance(data['precision'], bool):
+            search_filter.add_exact_match('precision', data['precision'])
+        elif isinstance(data['precision'], str):
+            search_filter.add_exact_match('precision', data['precision'].lower() == 'true')
+
+    # Material filter with hierarchical support
+    if data.get('material'):
+        # Get all descendant materials in the hierarchy for hierarchical search
+        material_descendants = service.get_material_descendants(data['material'])
+        # Add the material list directly to the filter for hierarchical matching
+        search_filter.add_exact_match('material', material_descendants)
+
+    # Dimension range filters
+    dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
+    for field in dimension_fields:
+        min_val = data.get(f'{field}_min')
+        max_val = data.get(f'{field}_max')
+
+        if min_val is not None or max_val is not None:
+            try:
+                min_decimal = Decimal(str(min_val)) if min_val is not None else None
+                max_decimal = Decimal(str(max_val)) if max_val is not None else None
+                search_filter.add_range(field, min_decimal, max_decimal)
+            except (ValueError, InvalidOperation):
+                raise SearchFilterError(f'Invalid {field} range values')
+
+    # Thread filters
+    if data.get('thread_size'):
+        search_filter.add_text_search('thread_size', data['thread_size'])
+
+    if data.get('thread_series'):
+        try:
+            thread_series = ThreadSeries[data['thread_series'].upper()]
+            search_filter.add_exact_match('thread_series', thread_series)
+        except KeyError:
+            raise SearchFilterError(f'Invalid thread series: {data["thread_series"]}')
+
+    return search_filter
+
+
 @bp.route('/api/inventory/search', methods=['POST'])
 @csrf.exempt
 def api_advanced_search():
@@ -2027,109 +2238,16 @@ def api_advanced_search():
         data = request.get_json() or {}
         
         service = _get_inventory_service()
-        
-        # Import SearchFilter here to avoid circular import
-        from app.mariadb_inventory_service import SearchFilter
-        
-        # Build search filter from request data
-        search_filter = SearchFilter()
-        
-        # Basic identification filters
-        if data.get('ja_id'):
-            search_filter.add_exact_match('ja_id', data['ja_id'].upper())
-        
-        if data.get('location'):
-            search_filter.add_text_search('location', data['location'])
-        
-        if data.get('notes'):
-            search_filter.add_text_search('notes', data['notes'])
-        
-        # Type and shape filters
-        if data.get('item_type'):
-            try:
-                item_type = ItemType(data['item_type'])
-                search_filter.add_exact_match('item_type', item_type)
-            except KeyError:
-                return jsonify({
-                    'success': False,
-                    'message': f'Invalid item type: {data["item_type"]}',
-                    'items': [],
-                    'total_count': 0
-                }), 400
-        
-        if data.get('shape'):
-            try:
-                shape = ItemShape(data['shape'])
-                search_filter.add_exact_match('shape', shape)
-            except KeyError:
-                return jsonify({
-                    'success': False,
-                    'message': f'Invalid shape: {data["shape"]}',
-                    'items': [],
-                    'total_count': 0
-                }), 400
-        
-        # Active/inactive filter
-        if 'active' in data:
-            if data['active'] == '':
-                # Empty string means show all items - add empty string to filters
-                search_filter.add_exact_match('active', '')
-            elif data['active'] is not None:
-                if isinstance(data['active'], bool):
-                    search_filter.add_exact_match('active', data['active'])
-                elif isinstance(data['active'], str):
-                    search_filter.add_exact_match('active', data['active'].lower() == 'true')
-        # If active is not present at all, search_active_items will default to active items only
-        
-        # Precision filter
-        if 'precision' in data and data['precision'] is not None:
-            if isinstance(data['precision'], bool):
-                search_filter.add_exact_match('precision', data['precision'])
-            elif isinstance(data['precision'], str):
-                search_filter.add_exact_match('precision', data['precision'].lower() == 'true')
-        
-        # Material filter with hierarchical support
-        if data.get('material'):
-            # Get all descendant materials in the hierarchy for hierarchical search
-            material_descendants = service.get_material_descendants(data['material'])
-            # Add the material list directly to the filter for hierarchical matching
-            search_filter.add_exact_match('material', material_descendants)
-        
-        # Dimension range filters
-        dimension_fields = ['length', 'width', 'thickness', 'wall_thickness']
-        for field in dimension_fields:
-            min_val = data.get(f'{field}_min')
-            max_val = data.get(f'{field}_max')
-            
-            if min_val is not None or max_val is not None:
-                try:
-                    min_decimal = Decimal(str(min_val)) if min_val is not None else None
-                    max_decimal = Decimal(str(max_val)) if max_val is not None else None
-                    search_filter.add_range(field, min_decimal, max_decimal)
-                except (ValueError, InvalidOperation):
-                    return jsonify({
-                        'success': False,
-                        'message': f'Invalid {field} range values',
-                        'items': [],
-                        'total_count': 0
-                    }), 400
-        
-        # Thread filters
-        if data.get('thread_size'):
-            search_filter.add_text_search('thread_size', data['thread_size'])
-        
-        if data.get('thread_series'):
-            try:
-                thread_series = ThreadSeries[data['thread_series'].upper()]
-                search_filter.add_exact_match('thread_series', thread_series)
-            except KeyError:
-                return jsonify({
-                    'success': False,
-                    'message': f'Invalid thread series: {data["thread_series"]}',
-                    'items': [],
-                    'total_count': 0
-                }), 400
-        
+
+        try:
+            search_filter = _build_search_filter(service, data)
+        except SearchFilterError as e:
+            return jsonify({
+                'success': False,
+                'message': str(e),
+                'items': [],
+                'total_count': 0
+            }), 400
         
         # Execute search
         items = service.search_items(search_filter)
