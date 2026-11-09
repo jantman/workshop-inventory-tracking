@@ -32,8 +32,8 @@ class ProductMoveManager extends MoveManager {
     /**
      * A product's location is free text (`WoodshopShelf`, `eShop Shelf3`), not
      * the item convention, so its shape cannot say whether it is a location.
-     * Where the page is waiting for one -- after a code, or for a preselected
-     * group -- whatever arrives is it. Everywhere else the item rule still
+     * Where the page is waiting for one -- after a code, for a preselected
+     * group, or for a scanned group -- whatever arrives is it. Everywhere else the item rule still
      * applies: free text after a location is the sub-location, and an
      * item-shaped location there is still "two locations in a row".
      *
@@ -45,7 +45,8 @@ class ProductMoveManager extends MoveManager {
             return false;
         }
         if (this.currentExpectedInput === 'location' ||
-                this.currentExpectedInput === 'bulk_location') {
+                this.currentExpectedInput === 'bulk_location' ||
+                this.currentExpectedInput === 'group_location') {
             return true;
         }
         return super.isLocation(value);

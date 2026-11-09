@@ -25,12 +25,15 @@ function escapeHtml(value) {
 class MoveManager {
     constructor() {
         this.moveQueue = [];
-        // State machine: 'bulk_location', 'id', 'location', or
+        // State machine: 'bulk_location', 'group_location', 'id', 'location', or
         // 'id_or_sub_location'.
         // 'id_or_sub_location' means we've received a location and are waiting for
         // either the next subject ID (no sub-location) or a sub-location string.
         // 'bulk_location' is the entry state when the page was handed a group of
         // preselected subjects: the next input is the destination for all of them.
+        // 'group_location' is the same wait for a group the owner built by
+        // scanning two or more IDs back to back (069); unlike 'bulk_location' a
+        // further ID joins the group instead of being refused.
         this.currentExpectedInput = 'id';
         this.currentId = null;
         this.currentLocation = null;
@@ -38,13 +41,13 @@ class MoveManager {
         this.scannerDelay = 100; // ms delay to detect scanner input
         this.manualEntryMode = false;
 
-        // Preselected items that have arrived but have no destination yet. A
-        // pending move is not a queued move: it has nothing to validate, so it
-        // is never counted in the queue badge and never executed. Giving the
-        // group a destination is the whole of the bulk_location transition.
+        // Subjects that have arrived -- handed over, or scanned into a group --
+        // but have no destination yet. A pending move is not a queued move: it
+        // has nothing to validate, so it is never counted in the queue badge and
+        // never executed. Giving the group a destination is the whole of the
+        // bulk_location / group_location transition. Each entry carries `ready`,
+        // a promise that resolves once its current location is established.
         this.pendingMoves = [];
-        // Resolves once every pending move's current location is established.
-        this.pendingMovesReady = Promise.resolve();
         // The IDs of the group most recently queued together, so a
         // sub-location scanned afterwards applies to all of them (FR-009)
         // rather than only to the last.
@@ -105,24 +108,121 @@ class MoveManager {
             return;
         }
 
-        this.pendingMoves = ids.map(id => ({
-            id: id,
-            currentLocation: 'Unknown',
-            currentSubLocation: null
-        }));
+        this.pendingMoves = ids.map(id => this.newPendingMove(id));
         this.currentExpectedInput = 'bulk_location';
         this.updateStatus(this.bulkPrompt());
         this.updateScannerStatus('Waiting for Destination');
+    }
 
-        this.pendingMovesReady = Promise.all(
-            this.pendingMoves.map(async pending => {
-                const current = await this.fetchCurrentLocation(pending.id);
-                pending.currentLocation = current.location;
-                pending.currentSubLocation = current.subLocation;
-                pending.itemInfo = current.label;
-                this.renderPendingMove(pending);
-            })
-        );
+    /**
+     * A subject awaiting a destination, with its current location looked up.
+     *
+     * The lookup is started here and its promise kept on the entry, so the
+     * location transition can wait for every entry present at that moment --
+     * a scanned group grows one subject at a time, so there is no single
+     * promise to wait on.
+     */
+    newPendingMove(id) {
+        const pending = {
+            id: id,
+            currentLocation: 'Unknown',
+            currentSubLocation: null
+        };
+        pending.ready = this.fetchCurrentLocation(id).then(current => {
+            pending.currentLocation = current.location;
+            pending.currentSubLocation = current.subLocation;
+            pending.itemInfo = current.label;
+            this.renderPendingMove(pending);
+        });
+        return pending;
+    }
+
+    /** The status line while a scanned group waits for its destination. */
+    groupPrompt() {
+        const count = this.pendingMoves.length;
+        return `${count} ${this.nounFor(count)} awaiting a destination. ` +
+            `Scan the next ${this.idLabel}, or the location all ${count} are going to${this.locationHint}.`;
+    }
+
+    /**
+     * Add a scanned subject to the group waiting for one destination (069).
+     *
+     * The row is appended synchronously, before its lookup returns: its
+     * existence is the signal that the scan was accepted.
+     */
+    addToScanGroup(id) {
+        const pending = this.newPendingMove(id);
+        this.pendingMoves.push(pending);
+
+        const row = document.createElement('tr');
+        row.dataset.id = id;
+        row.innerHTML =
+            `<td><strong>${escapeHtml(id)}</strong><br><small class="pending-label text-muted"></small></td>` +
+            '<td class="pending-current-location text-muted">&hellip;</td>' +
+            '<td class="pending-current-sub-location text-muted">&hellip;</td>' +
+            '<td><button type="button" class="btn btn-sm btn-outline-danger scan-group-remove" ' +
+            `data-id="${escapeHtml(id)}" title="Remove ${escapeHtml(id)} from this group">` +
+            '<i class="bi bi-x"></i></button></td>';
+        this.scanGroupRows.appendChild(row);
+        // The lookup may already have landed (it cannot before this tick, but
+        // renderPendingMove() is harmless to repeat).
+        this.renderPendingMove(pending);
+        this.updateScanGroupDisplay();
+    }
+
+    /**
+     * Start a scanned group: the subject waiting for its location and the one
+     * just scanned are both going to the next location scanned.
+     */
+    startScanGroup(firstId, secondId) {
+        this.currentId = null;
+        this.currentExpectedInput = 'group_location';
+        this.addToScanGroup(firstId);
+        this.addToScanGroup(secondId);
+        this.updateStatus(this.groupPrompt());
+        this.updateScannerStatus('Waiting for Destination');
+        this.updateButtonStates();
+    }
+
+    /** Take one subject out of the scanned group before its location is scanned. */
+    removeFromScanGroup(id) {
+        if (this.currentExpectedInput !== 'group_location') {
+            return;
+        }
+        this.pendingMoves = this.pendingMoves.filter(pending => pending.id !== id);
+        const row = this.scanGroupRows.querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+        if (row) {
+            row.remove();
+        }
+        this.updateScanGroupDisplay();
+
+        if (this.pendingMoves.length === 0) {
+            this.currentExpectedInput = 'id';
+            this.updateStatus(`Removed ${id}. Ready to scan a ${this.idLabel}.`);
+            this.updateScannerStatus(`Ready for ${this.idLabel}`);
+        } else {
+            this.updateStatus(`Removed ${id}. ${this.groupPrompt()}`);
+        }
+        this.updateButtonStates();
+    }
+
+    /** Show the scanned group's card while it has members, with its count. */
+    updateScanGroupDisplay() {
+        if (!this.scanGroup) {
+            return;
+        }
+        const count = this.scanGroupRows.children.length;
+        this.scanGroup.classList.toggle('d-none', count === 0);
+        this.scanGroupCount.textContent = `${count} ${this.nounFor(count)} awaiting a destination`;
+    }
+
+    /** Empty and hide the scanned group's card. */
+    discardScanGroup() {
+        if (!this.scanGroup) {
+            return;
+        }
+        this.scanGroupRows.innerHTML = '';
+        this.updateScanGroupDisplay();
     }
 
     /** The prompt for the group's destination, worded for one item or many. */
@@ -143,7 +243,9 @@ class MoveManager {
 
     /** Fill in one pending row's current location, once it is known. */
     renderPendingMove(pending) {
-        const row = document.querySelector(`#pending-moves tr[data-id="${pending.id}"]`);
+        const selector = CSS.escape(pending.id);
+        const row = document.querySelector(
+            `#pending-moves tr[data-id="${selector}"], #scan-group-rows tr[data-id="${selector}"]`);
         if (!row) {
             return;
         }
@@ -179,6 +281,11 @@ class MoveManager {
         this.validateBtn = document.getElementById('validate-btn');
         this.executeMoveBtn = document.getElementById('execute-moves-btn');
         this.validateHint = document.getElementById('validate-hint');
+
+        // The scanned group's card (069)
+        this.scanGroup = document.getElementById('scan-group');
+        this.scanGroupCount = document.getElementById('scan-group-count');
+        this.scanGroupRows = document.getElementById('scan-group-rows');
         
         // Alert elements
         this.formAlerts = document.getElementById('form-alerts');
@@ -262,6 +369,15 @@ class MoveManager {
         this.clearQueueBtn.addEventListener('click', () => this.clearQueue());
         this.validateBtn.addEventListener('click', () => this.validateMoves());
         this.executeMoveBtn.addEventListener('click', () => this.executeMoves());
+        if (this.scanGroupRows) {
+            this.scanGroupRows.addEventListener('click', (e) => {
+                const button = e.target.closest('.scan-group-remove');
+                if (button) {
+                    this.removeFromScanGroup(button.dataset.id);
+                    this.barcodeInput.focus();
+                }
+            });
+        }
 
         // Focus on barcode input when page loads
         this.barcodeInput.focus();
@@ -371,6 +487,29 @@ class MoveManager {
                     'warning');
                 this.clearInput();
             }
+        } else if (this.currentExpectedInput === 'group_location') {
+            // Two or more scanned subjects waiting for one destination (069):
+            // another ID joins them, a location queues them all.
+            if (inputType === 'location') {
+                console.log(`processInput(): State=group_location, handling group destination: ${value}`);
+                this.handleBulkLocationInput(value);
+            } else if (inputType === 'id') {
+                const id = this.normalizeId(value);
+                this.clearInput();
+                if (this.refuseDuplicate(id)) {
+                    return;
+                }
+                this.addToScanGroup(id);
+                this.updateStatus(this.groupPrompt());
+                this.updateButtonStates();
+            } else {
+                const count = this.pendingMoves.length;
+                this.showAlert(
+                    `${count} ${this.nounFor(count)} waiting for a destination, and a sub-location is not one. ` +
+                    `Scan the location they are going to${this.locationHint}, then the sub-location.`,
+                    'warning');
+                this.clearInput();
+            }
         } else if (this.currentExpectedInput === 'id') {
             // Expecting a subject ID
             if (inputType === 'id') {
@@ -386,21 +525,18 @@ class MoveManager {
                 console.log(`processInput(): State=location, handling location: ${value}`);
                 this.handleLocationInput(value);
             } else if (inputType === 'id') {
-                // An ID here unambiguously means the previous subject's location
-                // was missed, so the machine resolves onto the new item rather
-                // than bouncing. This used to warn and leave the state at
-                // 'location', which wedged the page: every subsequent JA-ID scan
-                // was refused, nothing was ever queued, and >>DONE<< then
-                // reported an empty queue. That is issue #107 -- see
-                // specs/026-fix-bulk-move-handoff/verification.md for the trace.
-                const abandoned = this.currentId;
+                // A second ID before any location: both are going to the next
+                // location scanned (069, issue #223). This is still an ID scan
+                // that always moves the machine forward -- the guarantee that
+                // closed issue #107, where a refused ID here wedged the page --
+                // but nothing is dropped now: the first subject waits, visibly,
+                // alongside the second.
                 const id = this.normalizeId(value);
-                if (this.handleIdInput(id)) {
-                    this.showAlert(
-                        `No location was scanned for ${abandoned}, so it was not queued. ` +
-                        `Now waiting for the location for ${id}.`,
-                        'warning');
+                this.clearInput();
+                if (this.refuseDuplicate(id)) {
+                    return;
                 }
+                this.startScanGroup(this.currentId, id);
             } else {
                 this.showAlert(`Expected location but received sub-location. Please scan a valid location${this.locationHint}.`, 'warning');
                 this.clearInput();
@@ -465,9 +601,7 @@ class MoveManager {
     handleIdInput(id) {
         console.log(`handleIdInput() called: id=${id}`);
 
-        // Check if this ID is already in queue, or on its way there
-        if (this.moveQueue.some(item => item.id === id) || this.inFlightIds.has(id)) {
-            this.showAlert(`${this.nounTitle} ${id} is already in the move queue`, 'warning');
+        if (this.refuseDuplicate(id)) {
             this.clearInput();
             return false;
         }
@@ -488,23 +622,44 @@ class MoveManager {
     }
 
     /**
+     * Refuse `id` with a message if it is already queued, on its way to the
+     * queue, or already waiting for a location. Returns whether it was refused.
+     */
+    refuseDuplicate(id) {
+        if (this.moveQueue.some(item => item.id === id) || this.inFlightIds.has(id)) {
+            this.showAlert(`${this.nounTitle} ${id} is already in the move queue`, 'warning');
+            return true;
+        }
+        if (this.currentId === id || this.pendingMoves.some(pending => pending.id === id)) {
+            this.showAlert(`${this.nounTitle} ${id} is already waiting for a destination`, 'warning');
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Apply one destination to every preselected subject, queueing them all.
      *
      * FR-008. The group becomes N ordinary queued moves, indistinguishable from
      * scanned ones, which is why validation and execution need no changes at all
      * (FR-013): they are the same objects, not a parallel kind of thing.
      */
-    async handleBulkLocationInput(location) {
+    handleBulkLocationInput(location) {
         this.clearInput();
 
-        // Each pending row's current location is established by a fetch started
-        // on load. Queueing before those land would show 'Unknown' for subjects
-        // whose location is perfectly well known (FR-010).
-        await this.pendingMovesReady;
-
+        // Synchronous, so no scan can arrive between the group leaving the
+        // scanner and its rows reaching the queue: a sub-location scanned
+        // straight after always finds the rows it applies to, and an ID
+        // scanned straight after cannot join a group that has already gone.
+        //
+        // Each subject's current location is looked up when it arrived and has
+        // usually landed by now. Where it has not, the row is queued showing
+        // "Unknown" and corrected when the lookup returns, rather than holding
+        // the whole transition open on the network (FR-010).
         const timestamp = new Date().toISOString();
-        this.pendingMoves.forEach(pending => {
-            this.moveQueue.push({
+        const group = this.pendingMoves;
+        group.forEach(pending => {
+            const entry = {
                 id: pending.id,
                 itemInfo: pending.itemInfo,
                 newLocation: location,
@@ -513,14 +668,22 @@ class MoveManager {
                 currentSubLocation: pending.currentSubLocation,
                 status: 'pending',
                 timestamp: timestamp
+            };
+            this.moveQueue.push(entry);
+            pending.ready.then(() => {
+                entry.itemInfo = pending.itemInfo;
+                entry.currentLocation = pending.currentLocation;
+                entry.currentSubLocation = pending.currentSubLocation;
+                this.updateUI();
             });
         });
 
-        const count = this.pendingMoves.length;
-        this.bulkGroupIds = this.pendingMoves.map(pending => pending.id);
+        const count = group.length;
+        this.bulkGroupIds = group.map(pending => pending.id);
         this.pendingMoves = [];
 
         this.discardPreselectedSection();
+        this.discardScanGroup();
 
         // The group is queued, so the machine rejoins the ordinary flow: a
         // sub-location from here applies to the whole group, and an ID starts
@@ -534,7 +697,7 @@ class MoveManager {
         this.updateScannerStatus(`Waiting for ${this.idLabel} or Sub-Location`);
         this.updateUI();
 
-        console.log(`handleBulkLocationInput(): queued ${count} preselected ${this.nounPlural} for ${location}`);
+        console.log(`handleBulkLocationInput(): queued ${count} ${this.nounPlural} for ${location}`);
     }
 
     handleLocationInput(location) {
@@ -736,6 +899,19 @@ class MoveManager {
             return;
         }
 
+        if (this.currentExpectedInput === 'group_location') {
+            // A scanned group with no destination is not queued by >>DONE<<:
+            // guessing one would be worse than asking. Whatever is already in
+            // the queue stays there; Validate becomes available again once the
+            // group is given its location or emptied (FR-009).
+            const count = this.pendingMoves.length;
+            this.showAlert(
+                `${count} ${this.nounFor(count)} awaiting a destination ${count === 1 ? 'was' : 'were'} not queued. ` +
+                `Scan the location they are going to${this.locationHint}, or remove them from the group.`,
+                'warning');
+            return;
+        }
+
         if (this.currentExpectedInput === 'location') {
             // We have an ID but no location - clear partial entry
             this.currentId = null;
@@ -785,6 +961,7 @@ class MoveManager {
         // feature exists to remove.
         this.pendingMoves = [];
         this.discardPreselectedSection();
+        this.discardScanGroup();
 
         this.updateStatus(`All data cleared. Ready to scan first ${this.idLabel}.`);
         this.updateScannerStatus('Ready');
@@ -952,9 +1129,10 @@ class MoveManager {
         if (this.inFlightIds.size > 0) {
             return `Still adding ${[...this.inFlightIds].join(', ')} to the queue.`;
         }
-        if (this.currentExpectedInput === 'bulk_location') {
+        if (this.currentExpectedInput === 'bulk_location' ||
+                this.currentExpectedInput === 'group_location') {
             const count = this.pendingMoves.length;
-            return `${count} ${this.nounFor(count)} still need a destination.`;
+            return `${count} ${this.nounFor(count)} still need${count === 1 ? 's' : ''} a destination.`;
         }
         if (this.currentExpectedInput === 'location') {
             return `${this.currentId} has no location yet. Scan its location to finish the entry.`;

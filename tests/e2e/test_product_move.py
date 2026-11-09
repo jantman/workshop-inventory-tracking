@@ -136,27 +136,31 @@ def test_an_inventory_item_label_is_refused_not_taken_as_a_sub_location(page, li
 
 
 @pytest.mark.e2e
-def test_a_missed_location_abandons_the_first_product(page, live_server):
-    """US2 scenario 4 and 6: product then product, and the half-entered hint."""
+def test_a_second_code_before_a_location_groups_the_two(page, live_server):
+    """US2 scenario 4 (as changed by 069, #223) and scenario 6, the
+    half-entered hint: product then product waits for one shared location."""
     first = _seed(live_server, description="First")
     second = _seed(live_server, description="Second")
+    third = _seed(live_server, description="Third")
     _open(page, live_server)
 
     scan_on_move_page(page, first.internal_code)
     scan_on_move_page(page, second.internal_code)
-    expect(_alerts(page).last).to_contain_text(f"No location was scanned for {first.internal_code}")
+    expect(page.locator("#scan-group-count")).to_have_text("2 products awaiting a destination")
 
     scan_on_move_page(page, "M1-A")
     scan_on_move_page(page, "Shelf 2")
-    expect(page.locator("#queue-count")).to_have_text("1 item")
-    expect(_row(page, second.internal_code)).to_have_count(1)
-    expect(_row(page, first.internal_code)).to_have_count(0)
+    expect(page.locator("#queue-count")).to_have_text("2 items")
+    for product in (first, second):
+        row = _row(page, product.internal_code)
+        expect(row.locator("td").nth(3)).to_have_text("M1-A")
+        expect(row.locator("td").nth(4)).to_contain_text("Shelf 2")
 
     # Half-entered: Validate is unavailable and says why.
-    scan_on_move_page(page, first.internal_code)
+    scan_on_move_page(page, third.internal_code)
     expect(page.locator("#validate-btn")).to_be_disabled()
     expect(page.locator("#validate-hint")).to_contain_text(
-        f"{first.internal_code} has no location yet")
+        f"{third.internal_code} has no location yet")
 
 
 @pytest.mark.e2e
