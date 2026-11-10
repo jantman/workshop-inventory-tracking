@@ -45,10 +45,11 @@
 22. [Using a Handheld Scanner](#using-a-handheld-scanner)
 23. [Data Export](#data-export)
 24. [REST API](#rest-api)
-25. [Help and Utilities](#help-and-utilities)
-26. [Tips and Best Practices](#tips-and-best-practices)
-27. [Troubleshooting](#troubleshooting)
-28. [Quick Reference Card](#quick-reference-card)
+25. [MCP Server](#mcp-server)
+26. [Help and Utilities](#help-and-utilities)
+27. [Tips and Best Practices](#tips-and-best-practices)
+28. [Troubleshooting](#troubleshooting)
+29. [Quick Reference Card](#quick-reference-card)
 
 ## Getting Started
 
@@ -3362,6 +3363,106 @@ result's `errors` list and set `success=False` rather than raising.
 The constant `SUGGESTABLE_FIELDS` (a tuple of the five whitelisted
 field names) is exported alongside the client for callers who want to
 validate field names before issuing a request.
+
+## MCP Server
+
+The application serves a [Model Context Protocol](https://modelcontextprotocol.io/)
+(MCP) endpoint, so an AI assistant such as Claude can look up and change inventory
+items and products for you: "what 1/2" aluminum plate do I have?", "move JA000123
+and JA000124 to Rack B", "mark the M3 screws low". It is served by the same
+application as the web UI, at `http://<host>:<port>/mcp`, and works on the same
+database.
+
+Every tool that changes data runs the same validation and the same code as the web
+page or API that does the same thing. A refused change writes nothing, and the
+assistant is told why in the words the web page would use.
+
+### Connecting Claude Code
+
+```bash
+claude mcp add --transport http workshop-inventory http://<host>:<port>/mcp
+```
+
+Then run `/mcp` in Claude Code to check that `workshop-inventory` is connected and
+lists its tools.
+
+### Connecting Claude Desktop
+
+Claude Desktop cannot reach a LAN-only address directly, so it connects through the
+`mcp-remote` bridge, which needs Node.js installed. Add this to
+`claude_desktop_config.json` (Settings → Developer → Edit Config) and restart
+Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "workshop-inventory": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://<host>:<port>/mcp", "--allow-http"]
+    }
+  }
+}
+```
+
+`--allow-http` is required because the endpoint is plain HTTP on a host other than
+localhost.
+
+### Tools
+
+**Inventory items**
+
+| Tool | What it does |
+|---|---|
+| `search_items` | Search by material (including every material beneath it), type, shape, dimension ranges, thread, location or notes text. Active items only unless `include_inactive` is true. |
+| `get_item` | One item by JA ID, with its full history (rows retired by shortening included). |
+| `find_stock` | The stock a described part could be cut from, as on the Find Stock page. |
+| `add_items` | Add one or more identical items; the server allocates and returns the JA IDs. |
+| `edit_item` | Change only the fields given; `null` clears an optional field. |
+| `shorten_item` | Record a cut to a shorter length; the JA ID stays, the previous row goes to history. |
+| `move_items` | Move items to a location and optional sub-location; reports each item that failed. |
+| `print_item_labels` | Print labels for one or more JA IDs. |
+
+**Products**
+
+| Tool | What it does |
+|---|---|
+| `search_products` | Search by text and identifiers (including internal codes), category, tag, stock state, specification or missing information. |
+| `get_product` | One product by internal code or product ID, with identifiers, quantity and its count age, flag and its age, and latest purchase. |
+| `get_reorder_list` | Products below their reorder threshold or flagged low/out, and whether each is on order. |
+| `add_product` | Add a product; only the description is required. Returns its internal code. |
+| `edit_product` | Change only the fields given. |
+| `set_product_category` | Give several products one category, all or nothing. |
+| `set_product_count` | Record a count, or `null` to stop tracking. |
+| `adjust_product_count` | Add to or take from a tracked count, as the **+**/**−** buttons do. |
+| `set_product_stock_flag` | Flag low or out, or clear the flag. |
+| `move_products` | Move products by internal code to a location and optional sub-location. |
+| `print_product_labels` | Print product labels. |
+
+**Reference lookups**
+
+`list_label_types`, `list_materials`, `list_item_types_and_shapes` (with the
+dimensions each type and shape requires), `list_locations` (or the sub-locations
+used within one location) and `list_product_categories`.
+
+### Conventions
+
+- Items are addressed by JA ID (`JA` and six digits, any case); products by internal
+  code (the `WIT…` code on the label) or numeric product ID.
+- Measurements are inches (weight in pounds). Tools accept `"1/2"`, `"1 1/4"`,
+  `"0.375"` or a number, and return exact decimal strings.
+- Search tools return 50 results by default (`limit` up to 200, `offset` for the
+  next page) and say whether more remain.
+
+### Not offered
+
+Deleting items or products, photos and attachments, orders and purchases
+(capturing, receiving, editing), exports, and materials or category
+administration are not available as tools. Use the web UI for those.
+
+### Security
+
+Like the rest of the application, the endpoint has no login: anyone who can reach
+the application on the network can use it. Keep it on the LAN.
 
 ## Help and Utilities
 

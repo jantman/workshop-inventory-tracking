@@ -160,6 +160,11 @@ def create_app(config_class=Config, storage_backend=None):
     from app.handheld import bp as handheld_bp
     app.register_blueprint(handheld_bp)
 
+    # JSON-RPC clients carry no CSRF token, like the JSON APIs in main.
+    from app.mcp import bp as mcp_bp
+    csrf.exempt(mcp_bp)
+    app.register_blueprint(mcp_bp)
+
     # Make the version available to all templates
     @app.context_processor
     def inject_version():
