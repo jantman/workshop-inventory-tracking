@@ -11,11 +11,14 @@ else entirely.
 """
 
 import re
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
 
 from app.catalog_service import CatalogService
+from app.database import Product
+from app.utils.clock import local_date
 
 # Static pages under /products that the new parameterized rule must not capture.
 STATIC_PRODUCT_PATHS = [
@@ -270,6 +273,49 @@ class TestPrintingAProductLabel:
         assert response.status_code == 400
         assert response.get_json()['error'] == error
         printer.assert_not_called()
+
+
+    def test_an_untracked_product_prints_without_a_count(self, client, service):
+        product = service.create_product(description='Blue widget')
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            client.post(f'/api/products/{product.id}/label', json={'label_type': 'Sato 2x4'})
+
+        assert printer.call_args.kwargs['count'] is None
+        assert printer.call_args.kwargs['count_date'] is None
+
+    def test_a_tracked_product_prints_its_count_and_local_day(self, client, service):
+        product = service.create_product(description='Blue widget', quantity=142)
+        counted_at = datetime(2026, 11, 20, 15, 0)
+        _set_columns(service, product.id, quantity_updated_at=counted_at)
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            client.post(f'/api/products/{product.id}/label', json={'label_type': 'Sato 2x4'})
+
+        assert printer.call_args.kwargs['count'] == 142
+        assert printer.call_args.kwargs['count_date'] == local_date(counted_at)
+
+    def test_a_tracked_product_never_counted_prints_no_date(self, client, service):
+        product = service.create_product(description='Blue widget', quantity=0)
+        _set_columns(service, product.id, quantity_updated_at=None)
+
+        with patch('app.services.product_label.print_product_label') as printer:
+            client.post(f'/api/products/{product.id}/label', json={'label_type': 'Sato 2x4'})
+
+        assert printer.call_args.kwargs['count'] == 0
+        assert printer.call_args.kwargs['count_date'] is None
+
+
+def _set_columns(service, product_id, **fields):
+    """Write columns directly; the service always stamps a count with now"""
+    session = service.Session()
+    try:
+        product = session.query(Product).filter(Product.id == product_id).one()
+        for name, value in fields.items():
+            setattr(product, name, value)
+        session.commit()
+    finally:
+        session.close()
 
 
 class TestTheProductsListOffersBulkLabelPrinting:
