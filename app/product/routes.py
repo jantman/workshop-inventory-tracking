@@ -52,6 +52,7 @@ from app.product import bp
 from app.services.listing_images import store_listing_images
 from app.utils import internal_id
 from app.utils.batch_move import batch_result, parse_moves
+from app.utils.clock import local_date
 from app.utils.handoff import resolve_product_handoff
 
 
@@ -2994,6 +2995,13 @@ def _print_product_label(
         part_number=product.manufacturer_part_number,
     )
 
+    # A tracked product's label says so (071). The count is printed as the
+    # operator's day, not the UTC one it was recorded in; a tracked product with
+    # no recorded count prints without a date.
+    count_date = None
+    if product.is_tracked and product.quantity_updated_at is not None:
+        count_date = local_date(product.quantity_updated_at)
+
     try:
         print_product_label(
             description=product.description,
@@ -3001,6 +3009,8 @@ def _print_product_label(
             provenance_lines=provenance_lines,
             label_config=LABEL_TYPES[label_type],
             num_copies=label_count,
+            count=product.quantity,
+            count_date=count_date,
         )
     except Exception as e:
         current_app.logger.error(f'Error printing product label for {product_id}: {e}')
