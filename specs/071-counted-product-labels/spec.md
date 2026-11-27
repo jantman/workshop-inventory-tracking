@@ -63,4 +63,20 @@ same on the shelf as one that is not. Product labels are composed by
 ## Out of Scope
 
 - Configuration of the marking's size, position or wording.
-- Any change to item (JA ID) labels.
+- Any change to item (JA ID) labels. The 4x6 fix below changes their canvas, not what prints:
+  the same 656 px barcode, centered, at the same physical size.
+- **Sato 1x2 Flag product labels.** A 13-character Code128 needs about 378 px at a one-dot
+  module; half of a 1x2 flag has about 287 px, so the barcode is downscaled below one dot and
+  does not scan, with or without the marking. That predates this feature.
+- **Sato 4x6 Flag** was not test-printed and keeps its 2:1 canvas.
+
+## Stock fix: Sato 4x6 canvas
+
+`Sato 4x6` composed at 2436 x 1218 (2:1) on a 6 x 4 in (3:2) label. CUPS scales to the label's
+height and crops the excess, cutting about 304 px off each end of a full-width product label,
+the block included. `fixed_len_px` is now 1827 (3:2). Verified by test print 2026-11-27.
+
+## Verification
+
+Test-printed 2026-11-27 with real products: Sato 1x2, 2x4, 2x4 Flag and 4x6 (after the canvas
+fix) all print cleanly and scan.

@@ -103,6 +103,18 @@ class TestOutputShape:
         image = compose(stock)
         assert image.size == (config['fixed_len_px'], config['lp_width_px'])
 
+    @pytest.mark.parametrize('stock', ['Sato 1x2', 'Sato 2x4', 'Sato 4x6'])
+    def test_a_full_width_stock_has_the_shape_of_its_label(self, stock):
+        """CUPS fills the label's height and crops any extra length.
+
+        A 4x6 canvas at 2:1 printed with both ends cut off; full-width product
+        content needs the canvas to be the label's own shape. The 1x2 and 2x4
+        are 2:1 labels, the 4x6 is 3:2.
+        """
+        config = LABEL_TYPES[stock]
+        inches = {'Sato 1x2': (2, 1), 'Sato 2x4': (4, 2), 'Sato 4x6': (6, 4)}[stock]
+        assert config['fixed_len_px'] * inches[1] == config['lp_width_px'] * inches[0]
+
     def test_output_is_a_png_bytesio(self):
         config = LABEL_TYPES['Sato 2x4']
         result = compose_product_label(
