@@ -16,9 +16,17 @@ FR-012 is a durability requirement, not a formatting preference: direct-thermal
 labels degrade in a workshop, and the human-readable code is what keeps a label
 with a scuffed barcode usable. It is therefore never dropped to gain space. The
 description truncates first.
+
+A product whose quantity is tracked also carries a COUNTED marking (071): white
+on black, so a tracked bin is told from an untracked one at a glance. On a
+single panel it is a block at the right-hand end holding the word, the count
+and the day it was last counted; on a flag stock each half gets a stripe at its
+outer end with just the word, because the halves have no room for more. An
+untracked product's label is the one it always was, to the pixel.
 """
 
 import logging
+from datetime import date
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -28,6 +36,7 @@ from pt_p710bt_label_maker.barcode_label import BarcodeLabelGenerator
 logger = logging.getLogger(__name__)
 
 FONT_FILENAME = 'DejaVuSans.ttf'
+BOLD_FONT_FILENAME = 'DejaVuSans-Bold.ttf'
 
 # Below this the description is no longer worth reading, so it is truncated
 # rather than shrunk any further.
@@ -41,6 +50,16 @@ PROVENANCE_BAND = 0.14
 MARGIN_FRACTION = 0.03
 ELLIPSIS = '…'
 
+# The COUNTED marking, as fractions of the width it is taken from: the block at
+# the right-hand end of a single panel, and the stripe at the outer end of each
+# half of a flag.
+COUNTED_BLOCK_FRACTION = 0.24
+COUNTED_STRIPE_FRACTION = 0.16
+COUNTED_TEXT = 'COUNTED'
+
+BLACK = (0, 0, 0, 255)
+WHITE = (255, 255, 255, 255)
+
 
 def compose_product_label(
     description: str,
@@ -51,6 +70,8 @@ def compose_product_label(
     maxlen_inches: float = 4.0,
     lp_dpi: int = 305,
     flag_mode: bool = False,
+    count: Optional[int] = None,
+    count_date: Optional[date] = None,
     **_ignored: Any,
 ) -> BytesIO:
     """Compose a product label as a PNG.
@@ -75,6 +96,13 @@ def compose_product_label(
         lp_dpi: The stock's DPI, from LABEL_TYPES.
         flag_mode: Whether this stock folds back on itself, in which case the
             content is repeated at both ends so it reads either way round.
+        count: The product's tracked quantity, or None when it is not tracked.
+            Not None -- zero included -- adds the COUNTED marking; None leaves
+            the label exactly as it would be without this parameter.
+        count_date: The operator's calendar day of the last count, or None when
+            no count was ever recorded, in which case the date is left off
+            rather than replaced with a placeholder. Ignored without ``count``,
+            and on flag stocks, which carry only the word.
         **_ignored: Other LABEL_TYPES keys (``lp_options``) are accepted so a
             config entry can be splatted in whole.
 
@@ -85,23 +113,38 @@ def compose_product_label(
     if flag_mode:
         # Each half carries the whole message, so the label reads the same
         # whichever way the fold ends up facing.
-        half = _compose_panel(
-            description, code, provenance_lines,
+        half_args = dict(
             width_px=fixed_len_px // 2,
             height_px=lp_width_px,
             maxlen_inches=maxlen_inches / 2,
             lp_dpi=lp_dpi,
         )
+        if count is None:
+            half = _compose_panel(description, code, provenance_lines, **half_args)
+        else:
+            half = _compose_counted_flag_half(
+                description, code, provenance_lines, **half_args
+            )
         canvas = Image.new('RGBA', (fixed_len_px, lp_width_px), (255, 255, 255, 0))
         canvas.paste(half, (0, 0))
         canvas.paste(half.rotate(180), (fixed_len_px - half.width, 0))
-    else:
+    elif count is None:
         canvas = _compose_panel(
             description, code, provenance_lines,
             width_px=fixed_len_px,
             height_px=lp_width_px,
             maxlen_inches=maxlen_inches,
             lp_dpi=lp_dpi,
+        )
+    else:
+        canvas = _compose_counted_panel(
+            description, code, provenance_lines,
+            width_px=fixed_len_px,
+            height_px=lp_width_px,
+            maxlen_inches=maxlen_inches,
+            lp_dpi=lp_dpi,
+            count=count,
+            count_date=count_date,
         )
 
     out = BytesIO()
@@ -184,6 +227,138 @@ def _compose_panel(
                 maxlen_inches, lp_dpi)
 
     return canvas
+
+
+def _compose_counted_panel(
+    description: str,
+    code: str,
+    provenance_lines: Optional[Sequence[str]],
+    width_px: int,
+    height_px: int,
+    maxlen_inches: float,
+    lp_dpi: int,
+    count: int,
+    count_date: Optional[date],
+) -> Image.Image:
+    """A full panel with the COUNTED block at its right-hand end.
+
+    The ordinary panel is composed into the width left of the block, with the
+    barcode's length limit scaled to match, so nothing in it -- the code text
+    least of all (FR-012) -- is drawn under the block. Top to bottom the block
+    holds the word, the count in a white window as the largest thing in it,
+    and the date.
+    """
+    block_width = int(width_px * COUNTED_BLOCK_FRACTION)
+    panel_width = width_px - block_width
+
+    canvas = Image.new('RGBA', (width_px, height_px), (255, 255, 255, 0))
+    canvas.paste(
+        _compose_panel(
+            description, code, provenance_lines,
+            width_px=panel_width,
+            height_px=height_px,
+            maxlen_inches=maxlen_inches * panel_width / width_px,
+            lp_dpi=lp_dpi,
+        ),
+        (0, 0),
+    )
+
+    draw = ImageDraw.Draw(canvas)
+    left = panel_width
+    draw.rectangle((left, 0, width_px - 1, height_px - 1), fill=BLACK)
+    _draw_centered(draw, (left, 0, width_px, int(height_px * 0.20)),
+                   COUNTED_TEXT, BOLD_FONT_FILENAME, WHITE, pad=0.10)
+
+    inset = int(block_width * 0.08)
+    window = (left + inset, int(height_px * 0.22),
+              width_px - inset, int(height_px * 0.78))
+    draw.rectangle(window, fill=WHITE)
+    _draw_centered(draw, window, str(count), BOLD_FONT_FILENAME, BLACK, pad=0.12)
+
+    if count_date is not None:
+        _draw_centered(draw, (left, int(height_px * 0.80), width_px, height_px),
+                       count_date.strftime('%Y-%m-%d'), FONT_FILENAME, WHITE,
+                       pad=0.15)
+
+    return canvas
+
+
+def _compose_counted_flag_half(
+    description: str,
+    code: str,
+    provenance_lines: Optional[Sequence[str]],
+    width_px: int,
+    height_px: int,
+    maxlen_inches: float,
+    lp_dpi: int,
+) -> Image.Image:
+    """One half of a flag label, with a COUNTED stripe at its left edge.
+
+    The left edge of the unrotated half is the label's outer end, and the right
+    half is this image turned 180 degrees, so the two stripes land at both ends
+    of the label rather than meeting at the fold.
+    """
+    stripe_width = int(width_px * COUNTED_STRIPE_FRACTION)
+    panel_width = width_px - stripe_width
+
+    canvas = Image.new('RGBA', (width_px, height_px), (255, 255, 255, 0))
+    canvas.paste(
+        _compose_panel(
+            description, code, provenance_lines,
+            width_px=panel_width,
+            height_px=height_px,
+            maxlen_inches=maxlen_inches * panel_width / width_px,
+            lp_dpi=lp_dpi,
+        ),
+        (stripe_width, 0),
+    )
+
+    # Drawn across a strip of the stripe's transposed size and then turned, so
+    # the word runs the length of the stripe instead of across its narrow width.
+    strip = Image.new('RGBA', (height_px, stripe_width), BLACK)
+    _draw_centered(ImageDraw.Draw(strip), (0, 0, height_px, stripe_width),
+                   COUNTED_TEXT, BOLD_FONT_FILENAME, WHITE, pad=0.18)
+    canvas.paste(strip.rotate(90, expand=True), (0, 0))
+
+    return canvas
+
+
+def _draw_centered(draw, box: Tuple[int, int, int, int], text: str,
+                   font_filename: str, fill: Tuple[int, int, int, int],
+                   pad: float) -> None:
+    """Draw `text` as large as fits `box`, less `pad` of each side, centred.
+
+    Fitted and centred on the glyphs' own ink box rather than on the ascender
+    origin ``_fit_font`` measures from: these are single words, numbers and
+    dates with no descenders to clip, and it is the ink that has to look
+    centred in a block. There is no minimum size -- a five-digit count shrinks
+    until it fits its window rather than spilling out of it.
+    """
+    x0, y0, x1, y1 = box
+    max_width = int((x1 - x0) * (1 - pad))
+    max_height = int((y1 - y0) * (1 - pad))
+
+    # Scale from a reference size, then step down for the rounding and hinting
+    # that keep glyph extents from being exactly proportional to the size.
+    reference = ImageFont.truetype(font_filename, size=100).getbbox(text)
+    size = max(1, int(100 * min(max_width / max(1, reference[2] - reference[0]),
+                                max_height / max(1, reference[3] - reference[1]))))
+    font = ImageFont.truetype(font_filename, size=size)
+    while size > 1:
+        ink = font.getbbox(text)
+        if ink[2] - ink[0] <= max_width and ink[3] - ink[1] <= max_height:
+            break
+        size -= 1
+        font = ImageFont.truetype(font_filename, size=size)
+
+    ink = font.getbbox(text)
+    draw.text(
+        (x0 + ((x1 - x0) - (ink[2] - ink[0])) // 2 - ink[0],
+         y0 + ((y1 - y0) - (ink[3] - ink[1])) // 2 - ink[1]),
+        text,
+        fill=fill,
+        font=font,
+    )
 
 
 def _fit_font(text: str, max_width: int, max_height: int, min_size: int) -> ImageFont.FreeTypeFont:
@@ -436,6 +611,8 @@ def print_product_label(
     provenance_lines: Optional[Sequence[str]],
     label_config: Dict[str, Any],
     num_copies: int = 1,
+    count: Optional[int] = None,
+    count_date: Optional[date] = None,
 ) -> None:
     """Compose a product label and send it to the printer.
 
@@ -449,6 +626,9 @@ def print_product_label(
         provenance_lines: The provenance lines, possibly empty.
         label_config: One LABEL_TYPES entry.
         num_copies: How many to print.
+        count: The tracked quantity, or None when the product is untracked;
+            see ``compose_product_label``.
+        count_date: The operator's day of the last count, or None.
     """
     from flask import current_app
     from pt_p710bt_label_maker.lp_printer import LpPrinter
@@ -462,7 +642,8 @@ def print_product_label(
             f"Would have printed: description='{description}', code='{code}', "
             f"provenance={list(provenance_lines or [])}, "
             f"lp_options='{label_config.get('lp_options')}', "
-            f"num_copies={num_copies}"
+            f"num_copies={num_copies}, count={count}, "
+            f"count_date={count_date.isoformat() if count_date else None}"
         )
         return
 
@@ -475,6 +656,8 @@ def print_product_label(
         maxlen_inches=label_config['maxlen_inches'],
         lp_dpi=label_config.get('lp_dpi', 305),
         flag_mode=label_config.get('flag_mode', False),
+        count=count,
+        count_date=count_date,
     )
 
     printer = LpPrinter(label_config['lp_options'])

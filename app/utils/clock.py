@@ -29,7 +29,7 @@ and no freeze hook: tests patch the module attribute, which needs no
 affordance in production code.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 
 def utc_now() -> datetime:
@@ -64,3 +64,20 @@ def local_now() -> datetime:
         The current local time, naive, as ``datetime.now()`` gives it.
     """
     return datetime.now()
+
+
+def local_date(recorded: datetime) -> date:
+    """The operator's calendar day on which a recorded instant fell.
+
+    For showing a :func:`utc_now` value to the operator as a day -- a product
+    label's "counted on" date, for instance. A count taken at nine in the
+    evening belongs to that day, not to the UTC day after it, which is the same
+    wall-clock convention :func:`local_now` follows.
+
+    Args:
+        recorded: A naive UTC instant, as :func:`utc_now` records them.
+
+    Returns:
+        The date of that instant on the server's local clock.
+    """
+    return recorded.replace(tzinfo=timezone.utc).astimezone().date()

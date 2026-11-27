@@ -2235,6 +2235,12 @@ The middle two lines are dropped individually when there is nothing to say, and
 a product with nothing to say at all gets a label with just a description and a
 code, as before.
 
+**A product whose quantity is tracked is marked `COUNTED`**, in white on a black
+block at the right end of the label, with the count and the day it was last
+counted (YYYY-MM-DD, left off if no count has been recorded) beneath it. These are
+the figures at the time of printing, so reprint after a recount; the Flag stocks
+have room only for the word, in a stripe at each end.
+
 Both forms of the code are always present. Direct-thermal labels scuff on a
 workshop shelf, and the readable code is what keeps a label with a damaged
 barcode usable -- so it is never dropped to make room. On a narrow label the

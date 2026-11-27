@@ -9,7 +9,7 @@ provenance band.
 **No test here reaches LpPrinter.print_images()** -- it drives real hardware.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 
@@ -18,6 +18,8 @@ from PIL import Image
 
 from app.services.label_printer import LABEL_TYPES
 from app.services.product_label import (
+    COUNTED_BLOCK_FRACTION,
+    COUNTED_STRIPE_FRACTION,
     DESCRIPTION_BAND,
     PROVENANCE_BAND,
     _band_heights,
@@ -100,6 +102,18 @@ class TestOutputShape:
         config = LABEL_TYPES[stock]
         image = compose(stock)
         assert image.size == (config['fixed_len_px'], config['lp_width_px'])
+
+    @pytest.mark.parametrize('stock', ['Sato 1x2', 'Sato 2x4', 'Sato 4x6'])
+    def test_a_full_width_stock_has_the_shape_of_its_label(self, stock):
+        """CUPS fills the label's height and crops any extra length.
+
+        A 4x6 canvas at 2:1 printed with both ends cut off; full-width product
+        content needs the canvas to be the label's own shape. The 1x2 and 2x4
+        are 2:1 labels, the 4x6 is 3:2.
+        """
+        config = LABEL_TYPES[stock]
+        inches = {'Sato 1x2': (2, 1), 'Sato 2x4': (4, 2), 'Sato 4x6': (6, 4)}[stock]
+        assert config['fixed_len_px'] * inches[1] == config['lp_width_px'] * inches[0]
 
     def test_output_is_a_png_bytesio(self):
         config = LABEL_TYPES['Sato 2x4']
@@ -272,6 +286,145 @@ class TestBandBudget:
         """An empty string must not reserve a band or displace the code."""
         assert compose_bytes(stock, provenance_lines=['']) == \
             compose_bytes(stock, provenance_lines=[])
+
+
+def on_white(image):
+    """The label as printed: transparent background composited onto white, in L"""
+    background = Image.new('RGBA', image.size, (255, 255, 255, 255))
+    background.alpha_composite(image.convert('RGBA'))
+    return background.convert('L')
+
+
+def dark_fraction(flat, box):
+    """Fraction of the pixels in `box` that are dark"""
+    histogram = flat.crop(box).histogram()
+    return sum(histogram[:128]) / sum(histogram)
+
+
+NON_FLAG_STOCKS = [s for s, c in LABEL_TYPES.items() if not c.get('flag_mode')]
+FLAG_STOCKS = [s for s, c in LABEL_TYPES.items() if c.get('flag_mode')]
+COUNTED = {'count': 142, 'count_date': date(2026, 11, 20)}
+
+
+def block_left(width):
+    """First column of the COUNTED block on a single-panel label"""
+    return width - int(width * COUNTED_BLOCK_FRACTION)
+
+
+class TestCountedMarking:
+    """071: a tracked product's label says COUNTED, white on black."""
+
+    @pytest.mark.parametrize('stock', list(LABEL_TYPES))
+    def test_an_untracked_label_is_unchanged_to_the_byte(self, stock):
+        """No count means no marking -- and a stray date changes nothing either"""
+        before = compose_bytes(stock)
+        assert compose_bytes(stock, count=None, count_date=None) == before
+        assert compose_bytes(stock, count_date=date(2026, 11, 20)) == before
+
+    @pytest.mark.parametrize('stock', NON_FLAG_STOCKS)
+    def test_a_tracked_label_carries_the_block_at_its_right_end(self, stock):
+        flat = on_white(compose(stock, **COUNTED))
+        w, h = flat.size
+        left = block_left(w)
+
+        # Black around a white window that takes about half of it.
+        assert dark_fraction(flat, (left, 0, w, h)) > 0.45
+        assert dark_fraction(flat, (left, 0, w, int(h * 0.2))) > 0.6
+        # The white window, sampled just inside its top edge, above the count.
+        assert dark_fraction(flat, (left + int(w * 0.03), int(h * 0.225),
+                                    w - int(w * 0.03), int(h * 0.24))) < 0.05
+        # And nothing of the panel is drawn just left of the block.
+        assert dark_fraction(flat, (left - 3, 0, left, h)) < 0.05
+
+    @pytest.mark.parametrize('stock', NON_FLAG_STOCKS)
+    def test_the_count_and_date_are_drawn(self, stock):
+        flat = on_white(compose(stock, **COUNTED))
+        w, h = flat.size
+        left = block_left(w)
+        window = (left + int(w * 0.03), int(h * 0.25), w - int(w * 0.03), int(h * 0.75))
+        date_band = (left, int(h * 0.82), w, h)
+
+        assert 0.02 < dark_fraction(flat, window) < 0.9
+        assert dark_fraction(flat, date_band) < 0.98
+
+    def test_no_recorded_date_leaves_the_date_band_black(self):
+        flat = on_white(compose('Sato 2x4', count=142, count_date=None))
+        w, h = flat.size
+        assert dark_fraction(flat, (block_left(w), int(h * 0.82), w, h)) == 1.0
+
+    def test_a_count_of_zero_is_tracked(self):
+        flat = on_white(compose('Sato 2x4', count=0))
+        w, h = flat.size
+        left = block_left(w)
+        assert dark_fraction(flat, (left, 0, w, int(h * 0.2))) > 0.6
+        window = (left + int(w * 0.03), int(h * 0.25), w - int(w * 0.03), int(h * 0.75))
+        assert dark_fraction(flat, window) > 0.02
+
+    @pytest.mark.parametrize('stock', NON_FLAG_STOCKS)
+    def test_a_huge_count_shrinks_to_fit_its_window(self, stock):
+        """The window's own edge columns stay white: nothing spilled to them"""
+        flat = on_white(compose(stock, count=1234567890))
+        w, h = flat.size
+        left = block_left(w)
+        inset = int((w - left) * 0.08)
+        for x in (left + inset + 1, w - inset - 2):
+            assert dark_fraction(flat, (x, int(h * 0.23), x + 1, int(h * 0.77))) == 0
+
+    @pytest.mark.parametrize('stock', FLAG_STOCKS)
+    def test_a_flag_has_a_stripe_at_both_outer_ends_and_none_at_the_fold(self, stock):
+        flat = on_white(compose(stock, **COUNTED))
+        w, h = flat.size
+        stripe = int((w // 2) * COUNTED_STRIPE_FRACTION)
+
+        assert dark_fraction(flat, (0, 0, stripe, h)) > 0.6
+        assert dark_fraction(flat, (w - stripe, 0, w, h)) > 0.6
+        assert dark_fraction(flat, (w // 2 - stripe // 2, 0, w // 2 + stripe // 2, h)) < 0.4
+
+    @pytest.mark.parametrize('stock', FLAG_STOCKS)
+    def test_a_flag_carries_only_the_word(self, stock):
+        """The date has nowhere to go on a flag half, so it is not drawn"""
+        assert compose_bytes(stock, count=142, count_date=None) == \
+            compose_bytes(stock, **COUNTED)
+
+    @pytest.mark.parametrize('stock', list(LABEL_TYPES))
+    def test_the_marking_stays_out_of_the_barcode_quiet_zone(self, stock):
+        """At least 10 modules of white between the bars and the black marking.
+
+        Measured on one pixel row through the bars (one provenance line puts
+        them between 52% and 84% of the height). On a flag only the left half
+        is measured: the right half is the same image turned round.
+        """
+        flat = on_white(compose(stock, **COUNTED))
+        w, h = flat.size
+        flag = LABEL_TYPES[stock].get('flag_mode', False)
+        y = int(h * 0.68)
+        if flag:
+            marking_edge = int((w // 2) * COUNTED_STRIPE_FRACTION)
+            start, end = marking_edge, w // 2
+        else:
+            marking_edge = block_left(w)
+            start, end = 0, marking_edge
+        row = [flat.getpixel((x, y)) < 128 for x in range(start, end)]
+
+        runs = []  # (first column, length) of each dark run, in row coordinates
+        x = 0
+        while x < len(row):
+            if row[x]:
+                run_start = x
+                while x < len(row) and row[x]:
+                    x += 1
+                runs.append((run_start, x - run_start))
+            else:
+                x += 1
+        assert len(runs) > 20, 'the sampled row does not cross the bars'
+
+        module = min(length for _, length in runs)
+        if flag:
+            gap = runs[0][0]
+        else:
+            last_start, last_length = runs[-1]
+            gap = len(row) - (last_start + last_length)
+        assert gap >= 10 * module
 
 
 class TestFlagMode:

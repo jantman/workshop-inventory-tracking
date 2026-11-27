@@ -35,7 +35,7 @@ from app.mariadb_materials_admin_service import (
     TaxonomyAddRequest,
 )
 from app.product.routes import relative_age
-from app.utils.clock import local_now, utc_now
+from app.utils.clock import local_date, local_now, utc_now
 
 pytestmark = pytest.mark.unit
 
@@ -104,6 +104,17 @@ class TestTheClockItself:
         """
         offset = utc_now() - local_now()
         assert offset > timedelta(hours=3)
+
+
+class TestARecordedInstantShownAsADay:
+    """071: a recorded UTC instant is shown as the operator's own day"""
+
+    def test_an_evening_count_stays_on_its_own_day(self, forced_timezone):
+        """02:30 UTC on the 21st is the evening of the 20th in New York"""
+        assert local_date(datetime(2026, 11, 21, 2, 30)) == date(2026, 11, 20)
+
+    def test_a_daytime_count_is_the_same_day(self, forced_timezone):
+        assert local_date(datetime(2026, 11, 20, 15, 0)) == date(2026, 11, 20)
 
 
 class TestARecordedRowIsOnOneClock:

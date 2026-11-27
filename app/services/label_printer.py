@@ -51,7 +51,10 @@ LABEL_TYPES: Dict[str, Dict[str, Any]] = {
         "lp_options": "-d SatoM48Pro2 -o PageSize=w400h600 -o Level=B -o Darkness=5 -o landscape",
         "maxlen_inches": 6.0,
         "lp_width_px": 1218,
-        "fixed_len_px": 2436,
+        # 3:2, the shape of the label. CUPS scales the image to the label's
+        # height and crops whatever is wider, so a 2:1 canvas (2436) lost about
+        # 304 px off each end of a full-width product label.
+        "fixed_len_px": 1827,
         "lp_dpi": 203
     },
     'Sato 4x6 Flag': {
